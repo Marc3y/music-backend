@@ -1,0 +1,14 @@
+import { ObjectId } from "mongodb";
+
+export interface User {
+  _id?: ObjectId;
+  email: string;
+  username: string;
+  passwordHash: string;
+  emailVerified: boolean;
+  emailVerificationCode?: string;
+  emailVerificationExpiry?: Date;
+  passwordResetToken?: string;
+  passwordResetExpiry?: Date;
+  createdAt: Date;
+}
