@@ -15,7 +15,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(cookieParser());
-app.use(cors({ origin: "http://localhost:5173", credentials: true })); // Frontend-URL später anpassen
+app.use(cors({ origin: process.env.FRONTEND_URL, credentials: true })); // Frontend-URL später anpassen
 
 app.use("/auth", authRoutes);
 app.use("/playlists", playlistsRoutes);
