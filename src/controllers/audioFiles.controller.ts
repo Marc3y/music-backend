@@ -111,11 +111,18 @@ export async function getAudioFilesByPlaylist(req: AuthRequest, res: Response) {
   const audioFiles = db.collection<AudioFile>("audioFiles");
 
   const tracks = await audioFiles
-    .find({ playlistId: playlist._id })
-    .sort({ createdAt: -1 })
-    .toArray();
+  .find({ playlistId: playlist._id })
+  .sort({ createdAt: -1 })
+  .toArray();
 
-  res.json(tracks);
+  const withCoverUrls = await Promise.all(
+   tracks.map(async (t) => ({
+    ...t,
+    coverUrl: t.coverKey ? await getDownloadUrl(t.coverKey) : null,
+   }))
+);
+
+res.json(withCoverUrls);
 }
 
 // Einzelnen Track abrufen
@@ -138,7 +145,8 @@ export async function getAudioFileById(req: AuthRequest, res: Response) {
     return res.status(404).json({ error: "Track nicht gefunden" });
   }
 
-  res.json(track);
+  const coverUrl = track.coverKey ? await getDownloadUrl(track.coverKey) : null;
+  res.json({ ...track, coverUrl });
 }
 
 // Metadaten bearbeiten (Titel, Interpret, Beschreibung)
@@ -166,7 +174,8 @@ export async function updateAudioFile(req: AuthRequest, res: Response) {
     return res.status(404).json({ error: "Track nicht gefunden" });
   }
 
-  res.json(result);
+  const coverUrl = result.coverKey ? await getDownloadUrl(result.coverKey) : null;
+  res.json({ ...result, coverUrl });
 }
 
 // Eigenes Cover für einen Track hochladen (gleicher Ablauf wie bei Playlist-Cover)
