@@ -13,6 +13,7 @@ import {
   enableShare,
   disableShare,
   streamSharedAudioFile,
+  reorderAudioFiles
 } from "../controllers/audioFiles.controller";
 
 const router = Router();
@@ -23,6 +24,7 @@ router.get("/public/stream/:shareToken", streamSharedAudioFile);
 router.use(requireAuth);
 
 // Playlist-bezogene Upload-Routen
+router.post("/playlists/:playlistId/reorder", asyncHandler(reorderAudioFiles));
 router.post("/playlists/:playlistId/init-upload", asyncHandler(initAudioUpload));
 router.post("/playlists/:playlistId/confirm-upload", asyncHandler(confirmAudioUpload));
 router.get("/playlists/:playlistId", asyncHandler(getAudioFilesByPlaylist));

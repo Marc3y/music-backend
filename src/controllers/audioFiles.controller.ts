@@ -83,7 +83,8 @@ export async function confirmAudioUpload(req: AuthRequest, res: Response) {
     title: defaultTitle,
     fileSize,
     mimeType,
-    status: "processing", // Für den Start ohne FFmpeg-Verarbeitung direkt "ready"
+    status: "processing", 
+    order: Date.now(),
     shareEnabled: false,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -112,7 +113,7 @@ export async function getAudioFilesByPlaylist(req: AuthRequest, res: Response) {
 
   const tracks = await audioFiles
   .find({ playlistId: playlist._id })
-  .sort({ createdAt: -1 })
+  .sort({ order: 1, createdAt: -1 })
   .toArray();
 
   const withCoverUrls = await Promise.all(
@@ -346,4 +347,47 @@ export async function streamSharedAudioFile(req: AuthRequest, res: Response) {
     artist: track.artist,
     description: track.description,
   });
+}
+
+export async function reorderAudioFiles(req: AuthRequest, res: Response) {
+  const { orderedIds } = req.body as { orderedIds?: string[] };
+  if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
+    return res.status(400).json({ error: "orderedIds erforderlich" });
+  }
+
+  const { playlistId } = req.params;
+  if (typeof playlistId !== "string" || !ObjectId.isValid(playlistId)) {
+    return res.status(400).json({ error: "Ungültige PlaylistID" });
+  }
+
+  const playlist = await verifyPlaylistOwnership(playlistId, req.userId!);
+  if (!playlist) {
+    return res.status(404).json({ error: "Playlist nicht gefunden" });
+  }
+
+  const db = getDB();
+  const audioFiles = db.collection<AudioFile>("audioFiles");
+
+  const owned = await audioFiles
+    .find({
+      _id: { $in: orderedIds.map((id) => new ObjectId(id)) },
+      playlistId: playlist._id,
+      owner: new ObjectId(req.userId),
+    })
+    .project({ _id: 1 })
+    .toArray();
+
+  if (owned.length !== orderedIds.length) {
+    return res.status(400).json({ error: "Ungültige Track-Liste" });
+  }
+
+  const bulkOps = orderedIds.map((id, index) => ({
+    updateOne: {
+      filter: { _id: new ObjectId(id) },
+      update: { $set: { order: index, updatedAt: new Date() } },
+    },
+  }));
+
+  await audioFiles.bulkWrite(bulkOps);
+  res.json({ message: "Reihenfolge gespeichert" });
 }

@@ -14,6 +14,7 @@ export interface AudioFile {
   fileSize: number;
   mimeType: string;
   status: "processing" | "ready" | "failed";
+  order?: number;
   shareEnabled: boolean;
   shareToken?: string;
   createdAt: Date;
