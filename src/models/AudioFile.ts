@@ -29,6 +29,8 @@ export interface AudioFile {
   shareEnabled: boolean;
   shareToken?: string;
   shareProject?: boolean;      // Projektdatei der Hauptversion mitteilen?
+  projectShareEnabled?: boolean; // eigener Link nur für die Projektdatei
+  projectShareToken?: string;
   createdAt: Date;
   updatedAt: Date;
 

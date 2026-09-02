@@ -13,6 +13,9 @@ import {
   enableShare,
   disableShare,
   streamSharedAudioFile,
+  enableProjectShare,
+  disableProjectShare,
+  getSharedProject,
   reorderAudioFiles,
   initVersionUpload,
   confirmVersionUpload,
@@ -27,8 +30,9 @@ import {
 
 const router = Router();
 
-// Öffentliche Route (kein Login) - MUSS vor requireAuth stehen
+// Öffentliche Routen (kein Login) - MÜSSEN vor requireAuth stehen
 router.get("/public/stream/:shareToken", streamSharedAudioFile);
+router.get("/public/project/:token", getSharedProject);
 
 router.use(requireAuth);
 
@@ -59,5 +63,7 @@ router.delete("/:id", asyncHandler(deleteAudioFile));
 router.get("/:id/stream", asyncHandler(streamAudioFile));
 router.post("/:id/share", asyncHandler(enableShare));
 router.post("/:id/unshare", asyncHandler(disableShare));
+router.post("/:id/project-share", asyncHandler(enableProjectShare));
+router.post("/:id/project-unshare", asyncHandler(disableProjectShare));
 
 export default router;

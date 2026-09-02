@@ -416,6 +416,69 @@ export async function disableShare(req: AuthRequest, res: Response) {
   res.json({ message: "Teilen deaktiviert" });
 }
 
+// Eigenen Link nur für die Projektdatei aktivieren
+export async function enableProjectShare(req: AuthRequest, res: Response) {
+  const track = await verifyTrackOwnership(req.params.id, req.userId!);
+  if (!track) return res.status(404).json({ error: "Track nicht gefunden" });
+
+  const version = findSelectedVersion(track);
+  if (!version?.projectKey) {
+    return res
+      .status(400)
+      .json({ error: "Die Hauptversion hat keine Projektdatei zum Teilen." });
+  }
+
+  const token = track.projectShareToken ?? randomBytes(24).toString("hex");
+  await getDB()
+    .collection<AudioFile>("audioFiles")
+    .updateOne(
+      { _id: track._id },
+      { $set: { projectShareEnabled: true, projectShareToken: token, updatedAt: new Date() } }
+    );
+
+  res.json({
+    token,
+    shareUrl: `${process.env.FRONTEND_URL}/share/project/${token}`,
+  });
+}
+
+export async function disableProjectShare(req: AuthRequest, res: Response) {
+  const track = await verifyTrackOwnership(req.params.id, req.userId!);
+  if (!track) return res.status(404).json({ error: "Track nicht gefunden" });
+
+  await getDB()
+    .collection<AudioFile>("audioFiles")
+    .updateOne(
+      { _id: track._id },
+      { $set: { projectShareEnabled: false, updatedAt: new Date() } }
+    );
+
+  res.json({ message: "Projekt-Teilen deaktiviert" });
+}
+
+// Öffentlicher Projekt-Download (KEIN Login nötig)
+export async function getSharedProject(req: AuthRequest, res: Response) {
+  const token = param(req.params.token);
+  if (!token) return res.status(400).json({ error: "Ungültiger Link" });
+
+  const track = await getDB()
+    .collection<AudioFile>("audioFiles")
+    .findOne({ projectShareToken: token, projectShareEnabled: true });
+
+  if (!track) {
+    return res.status(404).json({ error: "Link ungültig oder deaktiviert" });
+  }
+
+  const version = findSelectedVersion(track);
+  if (!version?.projectKey) {
+    return res.status(404).json({ error: "Keine Projektdatei verfügbar" });
+  }
+
+  const filename = version.projectFilename ?? "projekt.zip";
+  const url = await getDownloadUrlAttachment(version.projectKey, filename);
+  res.json({ url, filename, trackTitle: track.title });
+}
+
 // Öffentliches Streamen über Share-Link (KEIN Login nötig)
 export async function streamSharedAudioFile(req: AuthRequest, res: Response) {
   const db = getDB();
