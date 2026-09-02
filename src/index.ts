@@ -90,6 +90,9 @@ async function startServer() {
       await getDB()
         .collection("savedShares")
         .createIndex({ userId: 1, type: 1, token: 1 }, { unique: true });
+      await getDB().collection("playlists").createIndex({ shareToken: 1 });
+      await getDB().collection("playlists").createIndex({ collabToken: 1 });
+      await getDB().collection("playlists").createIndex({ "collaborators.userId": 1 });
     } catch (err) {
       console.warn("⚠️  Index-Erstellung übersprungen:", err);
     }

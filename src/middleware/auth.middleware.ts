@@ -20,3 +20,16 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
     return res.status(401).json({ error: "Session abgelaufen oder ungültig" });
   }
 }
+
+// Setzt req.userId, wenn ein gültiges Access-Token vorliegt – blockiert aber nie.
+export function optionalAuth(req: AuthRequest, _res: Response, next: NextFunction) {
+  const token = req.cookies?.accessToken;
+  if (token) {
+    try {
+      req.userId = verifyAccessToken(token).userId;
+    } catch {
+      // anonym weiter
+    }
+  }
+  next();
+}

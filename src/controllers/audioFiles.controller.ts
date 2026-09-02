@@ -28,6 +28,7 @@ import {
 import { getStorageUsage, resolveStorageLimit } from "./account.controller";
 import { User } from "../models/User";
 import { SavedShare } from "../models/SavedShare";
+import { getEditablePlaylist } from "../utils/playlistAccess";
 import {
   buildVersion,
   buildProjectVersion,
@@ -35,11 +36,9 @@ import {
   writeMirror,
 } from "../utils/trackVersions";
 
-// Playlist-Ownership prüfen (Hilfsfunktion, mehrfach gebraucht)
+// Playlist zurückgeben, wenn der User sie bearbeiten darf (Owner oder Mitglied)
 async function verifyPlaylistOwnership(playlistId: string, userId: string) {
-  const db = getDB();
-  const playlists = db.collection<Playlist>("playlists");
-  return playlists.findOne({ _id: new ObjectId(playlistId), owner: new ObjectId(userId) });
+  return getEditablePlaylist(playlistId, userId);
 }
 
 async function safeDelete(key?: string) {
@@ -65,13 +64,16 @@ function param(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+// Track zurückgeben, wenn der User die zugehörige Playlist bearbeiten darf
 async function verifyTrackOwnership(trackIdRaw: unknown, userId: string) {
   const trackId = param(trackIdRaw);
   if (!trackId || !ObjectId.isValid(trackId)) return null;
-  const db = getDB();
-  return db
+  const track = await getDB()
     .collection<AudioFile>("audioFiles")
-    .findOne({ _id: new ObjectId(trackId), owner: new ObjectId(userId) });
+    .findOne({ _id: new ObjectId(trackId) });
+  if (!track) return null;
+  const playlist = await getEditablePlaylist(track.playlistId.toString(), userId);
+  return playlist ? track : null;
 }
 
 // Track mit frischer coverUrl zurückgeben (nach jeder Version-/Projekt-Änderung)
@@ -295,10 +297,7 @@ export async function getAudioFileById(req: AuthRequest, res: Response) {
   const db = getDB();
   const audioFiles = db.collection<AudioFile>("audioFiles");
 
-  const track = await audioFiles.findOne({
-    _id: new ObjectId(id),
-    owner: new ObjectId(req.userId),
-  });
+  const track = await verifyTrackOwnership(id, req.userId!);
 
   if (!track) {
     return res.status(404).json({ error: "Track nicht gefunden" });
@@ -320,11 +319,16 @@ export async function updateAudioFile(req: AuthRequest, res: Response) {
     return res.status(400).json({ error: "Ungültige ID" });
   }
 
+  const existing = await verifyTrackOwnership(id, req.userId!);
+  if (!existing) {
+    return res.status(404).json({ error: "Track nicht gefunden" });
+  }
+
   const db = getDB();
   const audioFiles = db.collection<AudioFile>("audioFiles");
 
   const result = await audioFiles.findOneAndUpdate(
-    { _id: new ObjectId(id), owner: new ObjectId(req.userId) },
+    { _id: existing._id },
     { $set: { ...parseResult.data, updatedAt: new Date() } },
     { returnDocument: "after" }
   );
@@ -352,10 +356,7 @@ export async function getAudioFileCoverUploadUrl(req: AuthRequest, res: Response
   const db = getDB();
   const audioFiles = db.collection<AudioFile>("audioFiles");
 
-  const track = await audioFiles.findOne({
-    _id: new ObjectId(id),
-    owner: new ObjectId(req.userId),
-  });
+  const track = await verifyTrackOwnership(id, req.userId!);
 
   if (!track) {
     return res.status(404).json({ error: "Track nicht gefunden" });
@@ -386,10 +387,7 @@ export async function deleteAudioFile(req: AuthRequest, res: Response) {
   const db = getDB();
   const audioFiles = db.collection<AudioFile>("audioFiles");
 
-  const track = await audioFiles.findOne({
-    _id: new ObjectId(id),
-    owner: new ObjectId(req.userId),
-  });
+  const track = await verifyTrackOwnership(id, req.userId!);
 
   if (!track) {
     return res.status(404).json({ error: "Track nicht gefunden" });
@@ -418,10 +416,7 @@ export async function streamAudioFile(req: AuthRequest, res: Response) {
   const db = getDB();
   const audioFiles = db.collection<AudioFile>("audioFiles");
 
-  const track = await audioFiles.findOne({
-    _id: new ObjectId(id),
-    owner: new ObjectId(req.userId),
-  });
+  const track = await verifyTrackOwnership(id, req.userId!);
 
   if (!track) {
     return res.status(404).json({ error: "Track nicht gefunden" });
@@ -445,10 +440,7 @@ export async function enableShare(req: AuthRequest, res: Response) {
   const db = getDB();
   const audioFiles = db.collection<AudioFile>("audioFiles");
 
-  const track = await audioFiles.findOne({
-    _id: new ObjectId(id),
-    owner: new ObjectId(req.userId),
-  });
+  const track = await verifyTrackOwnership(id, req.userId!);
 
   if (!track) {
     return res.status(404).json({ error: "Track nicht gefunden" });
@@ -483,11 +475,16 @@ export async function disableShare(req: AuthRequest, res: Response) {
       return res.status(400).json({ error: "Ungültige ID" });
     }
 
+  const existing = await verifyTrackOwnership(id, req.userId!);
+  if (!existing) {
+    return res.status(404).json({ error: "Track nicht gefunden" });
+  }
+
   const db = getDB();
   const audioFiles = db.collection<AudioFile>("audioFiles");
 
   const result = await audioFiles.findOneAndUpdate(
-    { _id: new ObjectId(id), owner: new ObjectId(req.userId) },
+    { _id: existing._id },
     { $set: { shareEnabled: false, updatedAt: new Date() } },
     { returnDocument: "after" }
   );
@@ -623,11 +620,12 @@ export async function reorderAudioFiles(req: AuthRequest, res: Response) {
   const db = getDB();
   const audioFiles = db.collection<AudioFile>("audioFiles");
 
+  // Alle gesendeten IDs müssen zu dieser Playlist gehören (Owner nicht relevant –
+  // Tracks können auch Mitgliedern gehören).
   const owned = await audioFiles
     .find({
       _id: { $in: orderedIds.map((id) => new ObjectId(id)) },
       playlistId: playlist._id,
-      owner: new ObjectId(req.userId),
     })
     .project({ _id: 1 })
     .toArray();

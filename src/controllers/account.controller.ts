@@ -437,6 +437,13 @@ async function resolveSharedTrack(type: "audio" | "project", token: string) {
     : audioFiles.findOne({ projectShareToken: token, projectShareEnabled: true });
 }
 
+async function usernameLower(userId: ObjectId): Promise<string | null> {
+  const u = await getDB()
+    .collection<User>("users")
+    .findOne({ _id: userId }, { projection: { username: 1 } });
+  return u ? u.username.toLowerCase() : null;
+}
+
 export async function addSavedShare(req: AuthRequest, res: Response) {
   const parsed = addSavedShareSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -446,12 +453,27 @@ export async function addSavedShare(req: AuthRequest, res: Response) {
   const { type, token } = parsed.data;
   const userId = new ObjectId(req.userId);
 
-  const track = await resolveSharedTrack(type, token);
-  if (!track) {
-    return res.status(404).json({ error: "Link ungültig oder nicht mehr geteilt" });
-  }
-  if (track.owner.equals(userId)) {
-    return res.status(400).json({ error: "Das ist dein eigener Eintrag" });
+  if (type === "playlist") {
+    const playlists = getDB().collection<Playlist>("playlists");
+    const pl = await playlists.findOne({ shareToken: token, shareEnabled: true });
+    if (!pl) return res.status(404).json({ error: "Link ungültig oder nicht mehr geteilt" });
+    if (pl.owner.equals(userId)) {
+      return res.status(400).json({ error: "Das ist deine eigene Playlist" });
+    }
+    if (pl.shareRestricted) {
+      const uname = await usernameLower(userId);
+      if (!uname || !(pl.allowedUsernames ?? []).includes(uname)) {
+        return res.status(403).json({ error: "Kein Zugriff auf diese Playlist" });
+      }
+    }
+  } else {
+    const track = await resolveSharedTrack(type, token);
+    if (!track) {
+      return res.status(404).json({ error: "Link ungültig oder nicht mehr geteilt" });
+    }
+    if (track.owner.equals(userId)) {
+      return res.status(400).json({ error: "Das ist dein eigener Eintrag" });
+    }
   }
 
   await getDB()
@@ -465,6 +487,38 @@ export async function addSavedShare(req: AuthRequest, res: Response) {
   res.json({ message: "Zur Mediathek hinzugefügt" });
 }
 
+async function resolveSavedPlaylist(
+  entry: SavedShare,
+  userId: ObjectId
+): Promise<Record<string, unknown> | null> {
+  const playlists = getDB().collection<Playlist>("playlists");
+  const pl =
+    entry.type === "playlist"
+      ? await playlists.findOne({ shareToken: entry.token, shareEnabled: true })
+      : await playlists.findOne({ collabToken: entry.token, "collaborators.userId": userId });
+  if (!pl) return null;
+
+  if (entry.type === "playlist" && pl.shareRestricted) {
+    const uname = await usernameLower(userId);
+    if (!uname || !(pl.allowedUsernames ?? []).includes(uname)) return null;
+  }
+
+  const trackCount = await getDB()
+    .collection<AudioFile>("audioFiles")
+    .countDocuments({ playlistId: pl._id });
+
+  return {
+    _id: entry._id!.toString(),
+    type: entry.type,
+    token: entry.token,
+    playlistId: pl._id!.toString(),
+    title: pl.name,
+    coverUrl: pl.coverKey ? await getDownloadUrl(pl.coverKey) : null,
+    trackCount,
+    addedAt: entry.createdAt,
+  };
+}
+
 export async function listSavedShares(req: AuthRequest, res: Response) {
   const userId = new ObjectId(req.userId);
   const saved = getDB().collection<SavedShare>("savedShares");
@@ -474,6 +528,13 @@ export async function listSavedShares(req: AuthRequest, res: Response) {
   const staleIds: ObjectId[] = [];
 
   for (const entry of entries) {
+    if (entry.type === "playlist" || entry.type === "collab") {
+      const item = await resolveSavedPlaylist(entry, userId);
+      if (item) result.push(item);
+      else staleIds.push(entry._id!);
+      continue;
+    }
+
     const track = await resolveSharedTrack(entry.type, entry.token);
     if (!track) {
       staleIds.push(entry._id!);

@@ -110,5 +110,18 @@ export const deleteAccountRequestSchema = z.object({
 
 export const addSavedShareSchema = z.object({
     token: z.string().min(1),
-    type: z.enum(["audio", "project"]),
+    type: z.enum(["audio", "project", "playlist"]),
+});
+
+const usernameEntry = z.string().min(3).max(30);
+
+export const updatePlaylistShareSchema = z.object({
+    shareEnabled: z.boolean().optional(),
+    shareRestricted: z.boolean().optional(),
+    shareAllowDownload: z.boolean().optional(),
+    allowedUsernames: z.array(usernameEntry).max(100).optional(),
+});
+
+export const updateCollaboratorsSchema = z.object({
+    usernames: z.array(usernameEntry).max(50),
 });
