@@ -12,8 +12,12 @@ import {
   codeConfirmSchema,
   deleteAccountRequestSchema,
   uploadUrlRequestSchema,
+  addSavedShareSchema,
 } from "../utils/validators";
 import { generateSixDigitCode } from "../utils/tokens";
+import { usernameTaken } from "../utils/users";
+import { findSelectedVersion } from "../utils/trackVersions";
+import { SavedShare } from "../models/SavedShare";
 import { DEFAULT_STORAGE_LIMIT_BYTES } from "../config/limits";
 import {
   sendPasswordChangeCodeEmail,
@@ -181,9 +185,14 @@ export async function updateUsername(req: AuthRequest, res: Response) {
 
   const db = getDB();
   const users = db.collection<User>("users");
+  const userId = new ObjectId(req.userId);
+
+  if (await usernameTaken(parseResult.data.username, userId)) {
+    return res.status(409).json({ error: "Dieser Username ist bereits vergeben" });
+  }
 
   const user = await users.findOneAndUpdate(
-    { _id: new ObjectId(req.userId) },
+    { _id: userId },
     { $set: { username: parseResult.data.username } },
     { returnDocument: "after" }
   );
@@ -379,6 +388,8 @@ async function deleteAllUserData(userId: ObjectId, user: User) {
   }
   await playlists.deleteMany({ owner: userId });
 
+  await db.collection<SavedShare>("savedShares").deleteMany({ userId });
+
   await safeDeleteObject(user.avatarKey);
 
   await users.deleteOne({ _id: userId });
@@ -415,4 +426,90 @@ export async function confirmAccountDeletion(req: AuthRequest, res: Response) {
 
   clearAuthCookies(res);
   res.json({ message: "Account gelöscht" });
+}
+
+/* ==================== Geteilte Sachen in der Mediathek ==================== */
+
+async function resolveSharedTrack(type: "audio" | "project", token: string) {
+  const audioFiles = getDB().collection<AudioFile>("audioFiles");
+  return type === "audio"
+    ? audioFiles.findOne({ shareToken: token, shareEnabled: true })
+    : audioFiles.findOne({ projectShareToken: token, projectShareEnabled: true });
+}
+
+export async function addSavedShare(req: AuthRequest, res: Response) {
+  const parsed = addSavedShareSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0].message });
+  }
+
+  const { type, token } = parsed.data;
+  const userId = new ObjectId(req.userId);
+
+  const track = await resolveSharedTrack(type, token);
+  if (!track) {
+    return res.status(404).json({ error: "Link ungültig oder nicht mehr geteilt" });
+  }
+  if (track.owner.equals(userId)) {
+    return res.status(400).json({ error: "Das ist dein eigener Eintrag" });
+  }
+
+  await getDB()
+    .collection<SavedShare>("savedShares")
+    .updateOne(
+      { userId, type, token },
+      { $setOnInsert: { userId, type, token, createdAt: new Date() } },
+      { upsert: true }
+    );
+
+  res.json({ message: "Zur Mediathek hinzugefügt" });
+}
+
+export async function listSavedShares(req: AuthRequest, res: Response) {
+  const userId = new ObjectId(req.userId);
+  const saved = getDB().collection<SavedShare>("savedShares");
+  const entries = await saved.find({ userId }).sort({ createdAt: -1 }).toArray();
+
+  const result: unknown[] = [];
+  const staleIds: ObjectId[] = [];
+
+  for (const entry of entries) {
+    const track = await resolveSharedTrack(entry.type, entry.token);
+    if (!track) {
+      staleIds.push(entry._id!);
+      continue;
+    }
+    const version = findSelectedVersion(track);
+    const withProject =
+      entry.type === "project" ||
+      (!!track.shareProject && !!version?.projectKey);
+
+    result.push({
+      _id: entry._id!.toString(),
+      type: entry.type,
+      token: entry.token,
+      title: track.title,
+      artist: track.artist,
+      bpm: version?.bpm ?? track.bpm ?? null,
+      musicalKey: version?.musicalKey ?? track.musicalKey ?? null,
+      projectFilename: withProject ? version?.projectFilename : undefined,
+      projectSize: withProject ? version?.projectSize : undefined,
+      addedAt: entry.createdAt,
+    });
+  }
+
+  if (staleIds.length) await saved.deleteMany({ _id: { $in: staleIds } });
+
+  res.json(result);
+}
+
+export async function removeSavedShare(req: AuthRequest, res: Response) {
+  const id = req.params.id;
+  if (typeof id !== "string" || !ObjectId.isValid(id)) {
+    return res.status(400).json({ error: "Ungültige ID" });
+  }
+  await getDB()
+    .collection<SavedShare>("savedShares")
+    .deleteOne({ _id: new ObjectId(id), userId: new ObjectId(req.userId) });
+  res.json({ message: "Entfernt" });
 }

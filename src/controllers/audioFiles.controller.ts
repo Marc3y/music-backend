@@ -27,6 +27,7 @@ import {
 } from "../services/storage.service";
 import { getStorageUsage, resolveStorageLimit } from "./account.controller";
 import { User } from "../models/User";
+import { SavedShare } from "../models/SavedShare";
 import {
   buildVersion,
   buildProjectVersion,
@@ -48,6 +49,15 @@ async function safeDelete(key?: string) {
   } catch (err) {
     console.error(`⚠️  Objekt konnte nicht gelöscht werden (${key}):`, err);
   }
+}
+
+// Wenn ein Track nicht mehr geteilt wird, verschwindet er auch aus fremden Mediatheken
+async function dropSavedShares(...tokens: (string | undefined)[]) {
+  const valid = tokens.filter((t): t is string => !!t);
+  if (!valid.length) return;
+  await getDB()
+    .collection<SavedShare>("savedShares")
+    .deleteMany({ token: { $in: valid } });
 }
 
 // Express 5 typisiert Route-Params als string | string[]
@@ -392,6 +402,7 @@ export async function deleteAudioFile(req: AuthRequest, res: Response) {
   await safeDelete(track.coverKey);
 
   await audioFiles.deleteOne({ _id: track._id });
+  await dropSavedShares(track.shareToken, track.projectShareToken);
 
   res.json({ message: "Track gelöscht" });
 }
@@ -485,6 +496,7 @@ export async function disableShare(req: AuthRequest, res: Response) {
     return res.status(404).json({ error: "Track nicht gefunden" });
   }
 
+  await dropSavedShares(result.shareToken);
   res.json({ message: "Teilen deaktiviert" });
 }
 
@@ -525,6 +537,7 @@ export async function disableProjectShare(req: AuthRequest, res: Response) {
       { $set: { projectShareEnabled: false, updatedAt: new Date() } }
     );
 
+  await dropSavedShares(track.projectShareToken);
   res.json({ message: "Projekt-Teilen deaktiviert" });
 }
 

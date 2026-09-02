@@ -107,3 +107,8 @@ export const codeConfirmSchema = z.object({
 export const deleteAccountRequestSchema = z.object({
     password: z.string().min(1, "Passwort erforderlich"),
 });
+
+export const addSavedShareSchema = z.object({
+    token: z.string().min(1),
+    type: z.enum(["audio", "project"]),
+});

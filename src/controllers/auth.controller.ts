@@ -9,6 +9,7 @@ import { registerSchema, loginSchema, verifyEmailSchema } from "../utils/validat
 import { sendVerificationEmail } from "../services/email.service";
 import { generateAccessToken, generateRefreshToken, generateSixDigitCode } from "../utils/tokens";
 import { DEFAULT_STORAGE_LIMIT_BYTES } from "../config/limits";
+import { usernameTaken } from "../utils/users";
 import { verifyRefreshToken } from "../utils/tokens";
 import { ObjectId } from "mongodb";
 
@@ -25,6 +26,10 @@ export async function register(req: Request, res: Response) {
   const existingUser = await users.findOne({ email });
   if (existingUser) {
     return res.status(409).json({ error: "E-Mail wird bereits verwendet" });
+  }
+
+  if (await usernameTaken(username)) {
+    return res.status(409).json({ error: "Dieser Username ist bereits vergeben" });
   }
 
   const passwordHash = await bcrypt.hash(password, 10);

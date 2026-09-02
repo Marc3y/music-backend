@@ -13,6 +13,9 @@ import {
   confirmPasswordChange,
   requestAccountDeletion,
   confirmAccountDeletion,
+  addSavedShare,
+  listSavedShares,
+  removeSavedShare,
 } from "../controllers/account.controller";
 
 const router = Router();
@@ -22,6 +25,9 @@ router.use(requireAuth);
 router.get("/me", asyncHandler(getMe));
 router.get("/storage", asyncHandler(getStorageSummary));
 router.get("/usage", asyncHandler(getUsage));
+router.get("/saved-shares", asyncHandler(listSavedShares));
+router.post("/saved-shares", asyncHandler(addSavedShare));
+router.delete("/saved-shares/:id", asyncHandler(removeSavedShare));
 router.patch("/username", asyncHandler(updateUsername));
 router.post("/avatar-upload-url", asyncHandler(getAvatarUploadUrl));
 router.delete("/avatar", asyncHandler(deleteAvatar));

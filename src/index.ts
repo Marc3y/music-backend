@@ -84,6 +84,16 @@ async function startServer() {
       { $set: { kind: "track" } }
     );
 
+    // Indizes (best effort – Bestandsdaten könnten Konflikte haben)
+    try {
+      await getDB().collection("users").createIndex({ username: 1 });
+      await getDB()
+        .collection("savedShares")
+        .createIndex({ userId: 1, type: 1, token: 1 }, { unique: true });
+    } catch (err) {
+      console.warn("⚠️  Index-Erstellung übersprungen:", err);
+    }
+
     app.listen(PORT, () => {
       console.log(`🚀 Server läuft auf http://localhost:${PORT}`);
     });
