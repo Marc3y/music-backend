@@ -58,17 +58,39 @@ export function resolveStorageLimit(user: Pick<User, "storageLimit">): number {
     : DEFAULT_STORAGE_LIMIT_BYTES;
 }
 
-// Belegter Speicher eines Users = Summe der Audio-Dateigrößen
+// Belegter Speicher = Audio ALLER Versionen + alle Projektdateien
 export async function getStorageUsage(userId: ObjectId): Promise<number> {
   const db = getDB();
   const audioFiles = db.collection<AudioFile>("audioFiles");
   const [row] = await audioFiles
     .aggregate<{ used: number }>([
       { $match: { owner: userId } },
-      { $group: { _id: null, used: { $sum: "$fileSize" } } },
+      {
+        $project: {
+          audio: { $sum: "$versions.fileSize" },
+          project: {
+            $sum: {
+              $map: {
+                input: { $ifNull: ["$versions", []] },
+                as: "v",
+                in: { $ifNull: ["$$v.projectSize", 0] },
+              },
+            },
+          },
+        },
+      },
+      { $group: { _id: null, used: { $sum: { $add: ["$audio", "$project"] } } } },
     ])
     .toArray();
   return row?.used ?? 0;
+}
+
+// Gesamtgröße eines Tracks (alle Versionen: Audio + Projekt)
+function trackTotalSize(t: AudioFile): number {
+  return (t.versions ?? []).reduce(
+    (s, v) => s + (v.fileSize ?? 0) + (v.projectSize ?? 0),
+    0
+  );
 }
 
 export async function getStorageSummary(req: AuthRequest, res: Response) {
@@ -97,31 +119,45 @@ export async function getUsage(req: AuthRequest, res: Response) {
     return res.status(404).json({ error: "User nicht gefunden" });
   }
 
-  const tracks = await audioFiles
-    .find({ owner: userId })
-    .sort({ fileSize: -1 })
-    .toArray();
+  const allTracks = await audioFiles.find({ owner: userId }).toArray();
 
-  const used = tracks.reduce((sum, t) => sum + (t.fileSize ?? 0), 0);
-
-  const playlistIds = [...new Set(tracks.map((t) => t.playlistId.toString()))];
+  const playlistIds = [...new Set(allTracks.map((t) => t.playlistId.toString()))];
   const playlistDocs = await playlists
     .find({ _id: { $in: playlistIds.map((id) => new ObjectId(id)) } })
     .toArray();
   const nameById = new Map(playlistDocs.map((p) => [p._id!.toString(), p.name]));
 
-  res.json({
-    used,
-    limit: resolveStorageLimit(user),
-    tracks: tracks.map((t) => ({
+  const tracks = allTracks
+    .map((t) => ({
       _id: t._id!.toString(),
       title: t.title,
-      fileSize: t.fileSize,
+      size: trackTotalSize(t),
+      versionCount: (t.versions ?? []).length,
       playlistId: t.playlistId.toString(),
       playlistName: nameById.get(t.playlistId.toString()) ?? null,
       status: t.status,
-    })),
-  });
+    }))
+    .sort((a, b) => b.size - a.size);
+
+  const projects = allTracks
+    .flatMap((t) =>
+      (t.versions ?? [])
+        .filter((v) => v.projectKey && v.projectSize)
+        .map((v) => ({
+          trackId: t._id!.toString(),
+          versionId: v._id.toString(),
+          trackTitle: t.title,
+          versionLabel: v.label,
+          playlistName: nameById.get(t.playlistId.toString()) ?? null,
+          filename: v.projectFilename ?? "projekt.zip",
+          size: v.projectSize ?? 0,
+        }))
+    )
+    .sort((a, b) => b.size - a.size);
+
+  const used = allTracks.reduce((sum, t) => sum + trackTotalSize(t), 0);
+
+  res.json({ used, limit: resolveStorageLimit(user), tracks, projects });
 }
 
 export async function getMe(req: AuthRequest, res: Response) {
@@ -328,7 +364,10 @@ async function deleteAllUserData(userId: ObjectId, user: User) {
 
   const tracks = await audioFiles.find({ owner: userId }).toArray();
   for (const track of tracks) {
-    await safeDeleteObject(track.key);
+    for (const v of track.versions ?? []) {
+      await safeDeleteObject(v.key);
+      await safeDeleteObject(v.projectKey);
+    }
     await safeDeleteObject(track.coverKey);
   }
   await audioFiles.deleteMany({ owner: userId });

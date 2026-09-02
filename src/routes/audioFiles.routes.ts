@@ -13,7 +13,16 @@ import {
   enableShare,
   disableShare,
   streamSharedAudioFile,
-  reorderAudioFiles
+  reorderAudioFiles,
+  initVersionUpload,
+  confirmVersionUpload,
+  updateVersion,
+  selectVersion,
+  deleteVersion,
+  initVersionProject,
+  confirmVersionProject,
+  downloadVersionProject,
+  deleteVersionProject,
 } from "../controllers/audioFiles.controller";
 
 const router = Router();
@@ -28,6 +37,19 @@ router.post("/playlists/:playlistId/reorder", asyncHandler(reorderAudioFiles));
 router.post("/playlists/:playlistId/init-upload", asyncHandler(initAudioUpload));
 router.post("/playlists/:playlistId/confirm-upload", asyncHandler(confirmAudioUpload));
 router.get("/playlists/:playlistId", asyncHandler(getAudioFilesByPlaylist));
+
+// Versionen (spezifische Routen VOR generischem /:id)
+router.post("/:id/versions/init", asyncHandler(initVersionUpload));
+router.post("/:id/versions/confirm", asyncHandler(confirmVersionUpload));
+router.patch("/:id/versions/:vid", asyncHandler(updateVersion));
+router.post("/:id/versions/:vid/select", asyncHandler(selectVersion));
+router.delete("/:id/versions/:vid", asyncHandler(deleteVersion));
+
+// Projektdateien einer Version
+router.post("/:id/versions/:vid/project/init", asyncHandler(initVersionProject));
+router.post("/:id/versions/:vid/project/confirm", asyncHandler(confirmVersionProject));
+router.get("/:id/versions/:vid/project/download", asyncHandler(downloadVersionProject));
+router.delete("/:id/versions/:vid/project", asyncHandler(deleteVersionProject));
 
 // Einzelner Track
 router.get("/:id", asyncHandler(getAudioFileById));

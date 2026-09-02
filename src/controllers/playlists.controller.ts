@@ -120,10 +120,17 @@ export async function deletePlaylist(req: AuthRequest, res: Response) {
   
     // Alle Tracks dieser Playlist finden und deren MinIO-Objekte löschen
     const tracksInPlaylist = await audioFiles.find({ playlistId: playlist._id }).toArray();
-  
+
     for (const track of tracksInPlaylist) {
-      await deleteObject(track.key);
-      if (track.coverKey) await deleteObject(track.coverKey);
+      for (const v of track.versions ?? []) {
+        try { await deleteObject(v.key); } catch { /* ignore */ }
+        if (v.projectKey) {
+          try { await deleteObject(v.projectKey); } catch { /* ignore */ }
+        }
+      }
+      if (track.coverKey) {
+        try { await deleteObject(track.coverKey); } catch { /* ignore */ }
+      }
     }
   
     await audioFiles.deleteMany({ playlistId: playlist._id });

@@ -48,6 +48,40 @@ export const updateAudioFileSchema = z.object({
   description: z.string().max(1000).optional(),
 });
 
+// --- Track-Versionen ---------------------------------------------------------
+
+export const initVersionUploadSchema = z.object({
+  filename: z.string().min(1),
+  contentType: z.string().min(1),
+  fileSize: z.number().positive().max(500 * 1024 * 1024), // Max 500 MB
+});
+
+export const confirmVersionUploadSchema = z.object({
+  key: z.string().min(1),
+  originalFilename: z.string().min(1),
+  fileSize: z.number().positive(),
+  mimeType: z.string().min(1),
+});
+
+export const updateVersionSchema = z.object({
+  bpm: z.number().int().min(1).max(400).nullable().optional(),
+  musicalKey: z.string().max(20).nullable().optional(),
+  label: z.string().min(1).max(120).optional(),
+});
+
+export const initVersionProjectSchema = z.object({
+  filename: z.string().min(1),
+  contentType: z.string().min(1),
+  // Projektdateien: kein eigenes Limit, nur das Account-Limit (hier großzügige Obergrenze)
+  fileSize: z.number().positive().max(20 * 1024 * 1024 * 1024),
+});
+
+export const confirmVersionProjectSchema = z.object({
+  key: z.string().min(1),
+  filename: z.string().min(1),
+  fileSize: z.number().positive(),
+});
+
 export const forgotPasswordSchema = z.object({
     email: z.string().email(),
 });

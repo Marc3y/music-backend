@@ -25,6 +25,20 @@ export async function getDownloadUrl(key: string): Promise<string> {
   return getSignedUrl(s3, command, { expiresIn: 600 }); // 10 Min gültig
 }
 
+// Wie getDownloadUrl, erzwingt aber einen Datei-Download mit sinnvollem Namen.
+export async function getDownloadUrlAttachment(
+  key: string,
+  filename: string
+): Promise<string> {
+  const safe = filename.replace(/[\r\n"\\]/g, "_");
+  const command = new GetObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: key,
+    ResponseContentDisposition: `attachment; filename="${safe}"`,
+  });
+  return getSignedUrl(s3, command, { expiresIn: 600 });
+}
+
 export async function deleteObject(key: string): Promise<void> {
   const command = new DeleteObjectCommand({
     Bucket: BUCKET_NAME,

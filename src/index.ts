@@ -4,8 +4,10 @@ dotenv.config();
 import express from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
+import { ObjectId } from "mongodb";
 import { connectDB, getDB } from "./config/db";
 import { DEFAULT_STORAGE_LIMIT_BYTES } from "./config/limits";
+import { AudioFile } from "./models/AudioFile";
 import authRoutes from "./routes/auth.routes";
 import accountRoutes from "./routes/account.routes";
 import playlistsRoutes from "./routes/playlists.routes";
@@ -38,6 +40,43 @@ async function startServer() {
         { storageLimit: { $exists: false } },
         { $set: { storageLimit: DEFAULT_STORAGE_LIMIT_BYTES } }
       );
+
+    // Bestandstracks in das Versions-Modell überführen (idempotent)
+    const audioFiles = getDB().collection<AudioFile>("audioFiles");
+    const legacy = audioFiles.find({ versions: { $exists: false } } as any);
+    let migrated = 0;
+    for await (const doc of legacy) {
+      const d = doc as any;
+      const versionId = new ObjectId();
+      await audioFiles.updateOne(
+        { _id: d._id },
+        {
+          $set: {
+            versions: [
+              {
+                _id: versionId,
+                label: "Version 1",
+                key: d.key,
+                originalFilename: d.originalFilename,
+                fileSize: d.fileSize,
+                mimeType: d.mimeType,
+                duration: d.duration,
+                bpm: null,
+                musicalKey: null,
+                status: d.status ?? "ready",
+                createdAt: d.createdAt ?? new Date(),
+              },
+            ],
+            selectedVersionId: versionId,
+            shareProject: d.shareProject ?? false,
+            bpm: null,
+            musicalKey: null,
+          },
+        }
+      );
+      migrated++;
+    }
+    if (migrated > 0) console.log(`🔀 ${migrated} Track(s) auf Versions-Modell migriert`);
 
     app.listen(PORT, () => {
       console.log(`🚀 Server läuft auf http://localhost:${PORT}`);
