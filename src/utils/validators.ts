@@ -56,3 +56,20 @@ export const resetPasswordSchema = z.object({
     token: z.string().min(1),
     newPassword: z.string().min(8, "Passwort muss mindestens 8 Zeichen haben"),
 });
+
+export const updateUsernameSchema = z.object({
+    username: z.string().min(3, "Username muss mindestens 3 Zeichen haben").max(30),
+});
+
+export const changePasswordRequestSchema = z.object({
+    currentPassword: z.string().min(1, "Aktuelles Passwort erforderlich"),
+    newPassword: z.string().min(8, "Passwort muss mindestens 8 Zeichen haben"),
+});
+
+export const codeConfirmSchema = z.object({
+    code: z.string().length(6, "Code muss 6 Zeichen haben"),
+});
+
+export const deleteAccountRequestSchema = z.object({
+    password: z.string().min(1, "Passwort erforderlich"),
+});

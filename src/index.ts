@@ -6,6 +6,7 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import { connectDB } from "./config/db";
 import authRoutes from "./routes/auth.routes";
+import accountRoutes from "./routes/account.routes";
 import playlistsRoutes from "./routes/playlists.routes";
 import audioFilesRoutes from "./routes/audioFiles.routes";
 import { errorHandler } from "./middleware/errorHandler";
@@ -18,6 +19,7 @@ app.use(cookieParser());
 app.use(cors({ origin: process.env.FRONTEND_URL, credentials: true })); // Frontend-URL später anpassen
 
 app.use("/auth", authRoutes);
+app.use("/account", accountRoutes);
 app.use("/playlists", playlistsRoutes);
 app.use("/audio-files", audioFilesRoutes);
 app.get("/health", (req, res) => {

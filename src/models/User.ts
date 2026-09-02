@@ -10,5 +10,11 @@ export interface User {
   emailVerificationExpiry?: Date;
   passwordResetToken?: string;
   passwordResetExpiry?: Date;
+  avatarKey?: string;
+  pendingPasswordHash?: string;
+  passwordChangeCode?: string;
+  passwordChangeExpiry?: Date;
+  accountDeletionCode?: string;
+  accountDeletionExpiry?: Date;
   createdAt: Date;
 }
