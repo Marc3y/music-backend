@@ -8,6 +8,7 @@ import { User } from "../models/User";
 import { registerSchema, loginSchema, verifyEmailSchema } from "../utils/validators";
 import { sendVerificationEmail } from "../services/email.service";
 import { generateAccessToken, generateRefreshToken, generateSixDigitCode } from "../utils/tokens";
+import { DEFAULT_STORAGE_LIMIT_BYTES } from "../config/limits";
 import { verifyRefreshToken } from "../utils/tokens";
 import { ObjectId } from "mongodb";
 
@@ -36,6 +37,7 @@ export async function register(req: Request, res: Response) {
     emailVerified: false,
     emailVerificationCode: verificationCode,
     emailVerificationExpiry: new Date(Date.now() + 15 * 60 * 1000), // 15 Min
+    storageLimit: DEFAULT_STORAGE_LIMIT_BYTES,
     createdAt: new Date(),
   };
 

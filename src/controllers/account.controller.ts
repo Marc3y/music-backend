@@ -14,6 +14,7 @@ import {
   uploadUrlRequestSchema,
 } from "../utils/validators";
 import { generateSixDigitCode } from "../utils/tokens";
+import { DEFAULT_STORAGE_LIMIT_BYTES } from "../config/limits";
 import {
   sendPasswordChangeCodeEmail,
   sendAccountDeletionCodeEmail,
@@ -49,6 +50,78 @@ async function serializeUser(user: User) {
     username: user.username,
     avatarUrl: user.avatarKey ? await getDownloadUrl(user.avatarKey) : null,
   };
+}
+
+export function resolveStorageLimit(user: Pick<User, "storageLimit">): number {
+  return typeof user.storageLimit === "number"
+    ? user.storageLimit
+    : DEFAULT_STORAGE_LIMIT_BYTES;
+}
+
+// Belegter Speicher eines Users = Summe der Audio-Dateigrößen
+export async function getStorageUsage(userId: ObjectId): Promise<number> {
+  const db = getDB();
+  const audioFiles = db.collection<AudioFile>("audioFiles");
+  const [row] = await audioFiles
+    .aggregate<{ used: number }>([
+      { $match: { owner: userId } },
+      { $group: { _id: null, used: { $sum: "$fileSize" } } },
+    ])
+    .toArray();
+  return row?.used ?? 0;
+}
+
+export async function getStorageSummary(req: AuthRequest, res: Response) {
+  const db = getDB();
+  const users = db.collection<User>("users");
+
+  const userId = new ObjectId(req.userId);
+  const user = await users.findOne({ _id: userId });
+  if (!user) {
+    return res.status(404).json({ error: "User nicht gefunden" });
+  }
+
+  const used = await getStorageUsage(userId);
+  res.json({ used, limit: resolveStorageLimit(user) });
+}
+
+export async function getUsage(req: AuthRequest, res: Response) {
+  const db = getDB();
+  const users = db.collection<User>("users");
+  const audioFiles = db.collection<AudioFile>("audioFiles");
+  const playlists = db.collection<Playlist>("playlists");
+
+  const userId = new ObjectId(req.userId);
+  const user = await users.findOne({ _id: userId });
+  if (!user) {
+    return res.status(404).json({ error: "User nicht gefunden" });
+  }
+
+  const tracks = await audioFiles
+    .find({ owner: userId })
+    .sort({ fileSize: -1 })
+    .toArray();
+
+  const used = tracks.reduce((sum, t) => sum + (t.fileSize ?? 0), 0);
+
+  const playlistIds = [...new Set(tracks.map((t) => t.playlistId.toString()))];
+  const playlistDocs = await playlists
+    .find({ _id: { $in: playlistIds.map((id) => new ObjectId(id)) } })
+    .toArray();
+  const nameById = new Map(playlistDocs.map((p) => [p._id!.toString(), p.name]));
+
+  res.json({
+    used,
+    limit: resolveStorageLimit(user),
+    tracks: tracks.map((t) => ({
+      _id: t._id!.toString(),
+      title: t.title,
+      fileSize: t.fileSize,
+      playlistId: t.playlistId.toString(),
+      playlistName: nameById.get(t.playlistId.toString()) ?? null,
+      status: t.status,
+    })),
+  });
 }
 
 export async function getMe(req: AuthRequest, res: Response) {

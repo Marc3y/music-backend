@@ -14,6 +14,8 @@ import {
 } from "../utils/validators";
 import { isAllowedAudioType } from "../utils/audioValidation";
 import { generateObjectKey, getUploadUrl, getDownloadUrl, deleteObject } from "../services/storage.service";
+import { getStorageUsage, resolveStorageLimit } from "./account.controller";
+import { User } from "../models/User";
 
 // Playlist-Ownership prüfen (Hilfsfunktion, mehrfach gebraucht)
 async function verifyPlaylistOwnership(playlistId: string, userId: string) {
@@ -43,6 +45,20 @@ export async function initAudioUpload(req: AuthRequest, res: Response) {
   const playlist = await verifyPlaylistOwnership(playlistId, req.userId!);
   if (!playlist) {
     return res.status(404).json({ error: "Playlist nicht gefunden" });
+  }
+
+  // Speicherlimit prüfen
+  const userId = new ObjectId(req.userId);
+  const db = getDB();
+  const user = await db.collection<User>("users").findOne({ _id: userId });
+  if (!user) {
+    return res.status(404).json({ error: "User nicht gefunden" });
+  }
+  const used = await getStorageUsage(userId);
+  if (used + fileSize > resolveStorageLimit(user)) {
+    return res
+      .status(403)
+      .json({ error: "Speicherlimit erreicht. Lösche Tracks oder erhöhe dein Limit." });
   }
 
   const key = generateObjectKey(`audio/${req.userId}`, filename);

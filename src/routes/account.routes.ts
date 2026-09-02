@@ -4,6 +4,8 @@ import { asyncHandler } from "../middleware/errorHandler";
 import { authLimiter } from "../middleware/rateLimiter";
 import {
   getMe,
+  getStorageSummary,
+  getUsage,
   updateUsername,
   getAvatarUploadUrl,
   deleteAvatar,
@@ -18,6 +20,8 @@ const router = Router();
 router.use(requireAuth);
 
 router.get("/me", asyncHandler(getMe));
+router.get("/storage", asyncHandler(getStorageSummary));
+router.get("/usage", asyncHandler(getUsage));
 router.patch("/username", asyncHandler(updateUsername));
 router.post("/avatar-upload-url", asyncHandler(getAvatarUploadUrl));
 router.delete("/avatar", asyncHandler(deleteAvatar));

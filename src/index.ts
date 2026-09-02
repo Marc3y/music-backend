@@ -4,7 +4,8 @@ dotenv.config();
 import express from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
-import { connectDB } from "./config/db";
+import { connectDB, getDB } from "./config/db";
+import { DEFAULT_STORAGE_LIMIT_BYTES } from "./config/limits";
 import authRoutes from "./routes/auth.routes";
 import accountRoutes from "./routes/account.routes";
 import playlistsRoutes from "./routes/playlists.routes";
@@ -29,6 +30,15 @@ app.get("/health", (req, res) => {
 async function startServer() {
   try {
     await connectDB();
+
+    // Bestandsuser bekommen das Standard-Speicherlimit als Feld (idempotent)
+    await getDB()
+      .collection("users")
+      .updateMany(
+        { storageLimit: { $exists: false } },
+        { $set: { storageLimit: DEFAULT_STORAGE_LIMIT_BYTES } }
+      );
+
     app.listen(PORT, () => {
       console.log(`🚀 Server läuft auf http://localhost:${PORT}`);
     });

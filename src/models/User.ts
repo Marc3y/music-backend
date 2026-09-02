@@ -11,6 +11,7 @@ export interface User {
   passwordResetToken?: string;
   passwordResetExpiry?: Date;
   avatarKey?: string;
+  storageLimit?: number; // Bytes; Default siehe config/limits.ts
   pendingPasswordHash?: string;
   passwordChangeCode?: string;
   passwordChangeExpiry?: Date;
