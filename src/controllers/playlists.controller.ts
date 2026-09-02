@@ -123,7 +123,9 @@ export async function deletePlaylist(req: AuthRequest, res: Response) {
 
     for (const track of tracksInPlaylist) {
       for (const v of track.versions ?? []) {
-        try { await deleteObject(v.key); } catch { /* ignore */ }
+        if (v.key) {
+          try { await deleteObject(v.key); } catch { /* ignore */ }
+        }
         if (v.projectKey) {
           try { await deleteObject(v.projectKey); } catch { /* ignore */ }
         }

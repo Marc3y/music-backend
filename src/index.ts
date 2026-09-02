@@ -69,6 +69,7 @@ async function startServer() {
             ],
             selectedVersionId: versionId,
             shareProject: d.shareProject ?? false,
+            kind: d.kind ?? "track",
             bpm: null,
             musicalKey: null,
           },
@@ -77,6 +78,11 @@ async function startServer() {
       migrated++;
     }
     if (migrated > 0) console.log(`🔀 ${migrated} Track(s) auf Versions-Modell migriert`);
+
+    await audioFiles.updateMany(
+      { kind: { $exists: false } },
+      { $set: { kind: "track" } }
+    );
 
     app.listen(PORT, () => {
       console.log(`🚀 Server läuft auf http://localhost:${PORT}`);

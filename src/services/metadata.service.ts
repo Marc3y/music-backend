@@ -5,16 +5,10 @@ import { s3, BUCKET_NAME } from "../config/minio";
 import { getDB } from "../config/db";
 import { AudioFile } from "../models/AudioFile";
 import { ObjectId } from "mongodb";
-import { mirrorFromSelected } from "../utils/trackVersions";
+import { writeMirror } from "../utils/trackVersions";
 
 async function refreshMirror(trackId: ObjectId) {
-  const audioFiles = getDB().collection<AudioFile>("audioFiles");
-  const track = await audioFiles.findOne({ _id: trackId });
-  if (!track) return;
-  await audioFiles.updateOne(
-    { _id: trackId },
-    { $set: { ...mirrorFromSelected(track), updatedAt: new Date() } }
-  );
+  await writeMirror(getDB().collection<AudioFile>("audioFiles"), trackId);
 }
 
 export async function processAudioMetadata(
@@ -72,7 +66,7 @@ export async function processAudioMetadata(
       const trackSet: Record<string, unknown> = {};
       if (
         embeddedTitle &&
-        track.title === track.originalFilename.replace(/\.[^/.]+$/, "")
+        track.title === (track.originalFilename ?? "").replace(/\.[^/.]+$/, "")
       ) {
         trackSet.title = embeddedTitle;
       }

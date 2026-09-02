@@ -4,6 +4,8 @@ import { asyncHandler } from "../middleware/errorHandler";
 import {
   initAudioUpload,
   confirmAudioUpload,
+  initProjectUpload,
+  confirmProjectUpload,
   getAudioFilesByPlaylist,
   getAudioFileById,
   updateAudioFile,
@@ -40,6 +42,8 @@ router.use(requireAuth);
 router.post("/playlists/:playlistId/reorder", asyncHandler(reorderAudioFiles));
 router.post("/playlists/:playlistId/init-upload", asyncHandler(initAudioUpload));
 router.post("/playlists/:playlistId/confirm-upload", asyncHandler(confirmAudioUpload));
+router.post("/playlists/:playlistId/project-init", asyncHandler(initProjectUpload));
+router.post("/playlists/:playlistId/project-confirm", asyncHandler(confirmProjectUpload));
 router.get("/playlists/:playlistId", asyncHandler(getAudioFilesByPlaylist));
 
 // Versionen (spezifische Routen VOR generischem /:id)

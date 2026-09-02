@@ -131,6 +131,7 @@ export async function getUsage(req: AuthRequest, res: Response) {
     .map((t) => ({
       _id: t._id!.toString(),
       title: t.title,
+      kind: t.kind ?? "track",
       size: trackTotalSize(t),
       versionCount: (t.versions ?? []).length,
       playlistId: t.playlistId.toString(),

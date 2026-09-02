@@ -27,11 +27,11 @@ import {
 } from "../services/storage.service";
 import { getStorageUsage, resolveStorageLimit } from "./account.controller";
 import { User } from "../models/User";
-import { AudioFile as AudioFileModel } from "../models/AudioFile";
 import {
   buildVersion,
+  buildProjectVersion,
   findSelectedVersion,
-  mirrorFromSelected,
+  writeMirror,
 } from "../utils/trackVersions";
 
 // Playlist-Ownership prüfen (Hilfsfunktion, mehrfach gebraucht)
@@ -172,6 +172,75 @@ export async function confirmAudioUpload(req: AuthRequest, res: Response) {
   const result = await audioFiles.insertOne(newAudioFile);
   processAudioMetadata(result.insertedId, v0._id, key);
   res.status(201).json({ ...newAudioFile, _id: result.insertedId });
+}
+
+/* ---- Reiner Projekt-Eintrag (nur .zip/.rar, keine Audiodatei) ---- */
+
+export async function initProjectUpload(req: AuthRequest, res: Response) {
+  const parsed = initVersionProjectSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0].message });
+  }
+
+  const { playlistId } = req.params;
+  if (typeof playlistId !== "string" || !ObjectId.isValid(playlistId)) {
+    return res.status(400).json({ error: "Ungültige Playlist-ID" });
+  }
+
+  const { filename, contentType, fileSize } = parsed.data;
+  if (!isAllowedProjectFile(filename, contentType)) {
+    return res.status(400).json({ error: "Nur .zip- oder .rar-Dateien erlaubt" });
+  }
+
+  const playlist = await verifyPlaylistOwnership(playlistId, req.userId!);
+  if (!playlist) return res.status(404).json({ error: "Playlist nicht gefunden" });
+
+  const limit = await assertWithinLimit(new ObjectId(req.userId), fileSize);
+  if (!limit.ok) return res.status(limit.status).json({ error: limit.error });
+
+  const key = generateObjectKey(`projects/${req.userId}`, filename);
+  const uploadUrl = await getUploadUrl(key, contentType);
+  res.json({ uploadUrl, key });
+}
+
+export async function confirmProjectUpload(req: AuthRequest, res: Response) {
+  const parsed = confirmVersionProjectSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0].message });
+  }
+
+  const { playlistId } = req.params;
+  if (typeof playlistId !== "string" || !ObjectId.isValid(playlistId)) {
+    return res.status(400).json({ error: "Ungültige Playlist-ID" });
+  }
+
+  const playlist = await verifyPlaylistOwnership(playlistId, req.userId!);
+  if (!playlist) return res.status(404).json({ error: "Playlist nicht gefunden" });
+
+  const { key, filename, fileSize } = parsed.data;
+  const db = getDB();
+  const audioFiles = db.collection<AudioFile>("audioFiles");
+
+  const v0 = buildProjectVersion(key, filename, fileSize);
+  const newEntry: AudioFile = {
+    playlistId: playlist._id!,
+    owner: new ObjectId(req.userId),
+    kind: "project",
+    title: filename.replace(/\.[^/.]+$/, ""),
+    order: Date.now(),
+    shareEnabled: false,
+    shareProject: false,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    versions: [v0],
+    selectedVersionId: v0._id,
+    bpm: null,
+    musicalKey: null,
+    status: "ready",
+  };
+
+  const result = await audioFiles.insertOne(newEntry);
+  res.status(201).json({ ...newEntry, _id: result.insertedId });
 }
 
 // Alle Tracks einer Playlist auflisten
@@ -347,6 +416,9 @@ export async function streamAudioFile(req: AuthRequest, res: Response) {
     return res.status(404).json({ error: "Track nicht gefunden" });
   }
 
+  if (!track.key) {
+    return res.status(404).json({ error: "Kein Audio für diesen Eintrag" });
+  }
   const streamUrl = await getDownloadUrl(track.key);
   res.json({ streamUrl });
 }
@@ -494,7 +566,11 @@ export async function streamSharedAudioFile(req: AuthRequest, res: Response) {
   }
 
   const version = findSelectedVersion(track);
-  const streamUrl = await getDownloadUrl(version?.key ?? track.key);
+  const streamKey = version?.key ?? track.key;
+  if (!streamKey) {
+    return res.status(404).json({ error: "Kein Audio verfügbar" });
+  }
+  const streamUrl = await getDownloadUrl(streamKey);
 
   let projectUrl: string | undefined;
   let projectFilename: string | undefined;
@@ -547,7 +623,22 @@ export async function reorderAudioFiles(req: AuthRequest, res: Response) {
     return res.status(400).json({ error: "Ungültige Track-Liste" });
   }
 
-  const bulkOps = orderedIds.map((id, index) => ({
+  // orderedIds darf eine Teilmenge sein (gefilterte Ansicht). Wir laden die
+  // volle Playlist-Reihenfolge und füllen die "sichtbaren" Slots neu; alle
+  // anderen Einträge behalten ihre Position.
+  const all = await audioFiles
+    .find({ playlistId: playlist._id })
+    .sort({ order: 1, createdAt: -1 })
+    .project({ _id: 1 })
+    .toArray();
+
+  const visible = new Set(orderedIds);
+  let vi = 0;
+  const finalOrder = all.map((t) =>
+    visible.has(t._id.toString()) ? orderedIds[vi++] : t._id.toString()
+  );
+
+  const bulkOps = finalOrder.map((id, index) => ({
     updateOne: {
       filter: { _id: new ObjectId(id) },
       update: { $set: { order: index, updatedAt: new Date() } },
@@ -571,14 +662,23 @@ export async function initVersionUpload(req: AuthRequest, res: Response) {
   if (!track) return res.status(404).json({ error: "Track nicht gefunden" });
 
   const { filename, contentType, fileSize } = parsed.data;
-  if (!isAllowedAudioType(contentType)) {
+  const isProject = track.kind === "project";
+
+  if (isProject) {
+    if (!isAllowedProjectFile(filename, contentType)) {
+      return res.status(400).json({ error: "Nur .zip- oder .rar-Dateien erlaubt" });
+    }
+  } else if (!isAllowedAudioType(contentType)) {
     return res.status(400).json({ error: "Dateityp nicht erlaubt" });
   }
 
   const limit = await assertWithinLimit(new ObjectId(req.userId), fileSize);
   if (!limit.ok) return res.status(limit.status).json({ error: limit.error });
 
-  const key = generateObjectKey(`audio/${req.userId}`, filename);
+  const key = generateObjectKey(
+    `${isProject ? "projects" : "audio"}/${req.userId}`,
+    filename
+  );
   const uploadUrl = await getUploadUrl(key, contentType);
   res.json({ uploadUrl, key });
 }
@@ -594,31 +694,27 @@ export async function confirmVersionUpload(req: AuthRequest, res: Response) {
   if (!track) return res.status(404).json({ error: "Track nicht gefunden" });
 
   const { key, originalFilename, fileSize, mimeType } = parsed.data;
-  const version = buildVersion(key, originalFilename, fileSize, mimeType);
+  const isProject = track.kind === "project";
+  const version = isProject
+    ? buildProjectVersion(key, originalFilename, fileSize)
+    : buildVersion(key, originalFilename, fileSize, mimeType);
 
   const db = getDB();
   const audioFiles = db.collection<AudioFile>("audioFiles");
-
-  const updatedVersions = [...track.versions, version];
-  const mirrorTrack: AudioFileModel = {
-    ...track,
-    versions: updatedVersions,
-    selectedVersionId: version._id,
-  };
 
   await audioFiles.updateOne(
     { _id: track._id },
     {
       $set: {
-        versions: updatedVersions,
+        versions: [...track.versions, version],
         selectedVersionId: version._id,
         updatedAt: new Date(),
-        ...mirrorFromSelected(mirrorTrack),
       },
     }
   );
+  await writeMirror(audioFiles, track._id!);
 
-  processAudioMetadata(track._id!, version._id, key);
+  if (!isProject) processAudioMetadata(track._id!, version._id, key);
   await sendTrack(res, track._id!);
 }
 
@@ -657,15 +753,7 @@ export async function updateVersion(req: AuthRequest, res: Response) {
     );
   }
 
-  // Mirror auffrischen, falls es die Hauptversion betrifft
-  const fresh = await audioFiles.findOne({ _id: track._id });
-  if (fresh) {
-    await audioFiles.updateOne(
-      { _id: track._id },
-      { $set: { ...mirrorFromSelected(fresh), updatedAt: new Date() } }
-    );
-  }
-
+  await writeMirror(audioFiles, track._id!);
   await sendTrack(res, track._id!);
 }
 
@@ -685,18 +773,12 @@ export async function selectVersion(req: AuthRequest, res: Response) {
 
   const db = getDB();
   const audioFiles = db.collection<AudioFile>("audioFiles");
-  const mirrorTrack: AudioFileModel = { ...track, selectedVersionId: versionId };
 
   await audioFiles.updateOne(
     { _id: track._id },
-    {
-      $set: {
-        selectedVersionId: versionId,
-        updatedAt: new Date(),
-        ...mirrorFromSelected(mirrorTrack),
-      },
-    }
+    { $set: { selectedVersionId: versionId, updatedAt: new Date() } }
   );
+  await writeMirror(audioFiles, track._id!);
 
   await sendTrack(res, track._id!);
 }
@@ -731,11 +813,6 @@ export async function deleteVersion(req: AuthRequest, res: Response) {
 
   const db = getDB();
   const audioFiles = db.collection<AudioFile>("audioFiles");
-  const mirrorTrack: AudioFileModel = {
-    ...track,
-    versions: remaining,
-    selectedVersionId: stillSelected,
-  };
 
   await audioFiles.updateOne(
     { _id: track._id },
@@ -744,10 +821,10 @@ export async function deleteVersion(req: AuthRequest, res: Response) {
         versions: remaining,
         selectedVersionId: stillSelected,
         updatedAt: new Date(),
-        ...mirrorFromSelected(mirrorTrack),
       },
     }
   );
+  await writeMirror(audioFiles, track._id!);
 
   await sendTrack(res, track._id!);
 }

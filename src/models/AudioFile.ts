@@ -3,10 +3,10 @@ import { ObjectId } from "mongodb";
 export interface TrackVersion {
   _id: ObjectId;
   label: string;               // Standard: originalFilename
-  key: string;                 // MinIO Object Key der Audiodatei
-  originalFilename: string;
-  fileSize: number;
-  mimeType: string;
+  key?: string;                // MinIO Object Key der Audiodatei (fehlt bei reinen Projekt-Einträgen)
+  originalFilename?: string;
+  fileSize?: number;
+  mimeType?: string;
   duration?: number;           // Sekunden, nach Verarbeitung
   bpm?: number | null;
   musicalKey?: string | null;
@@ -21,6 +21,7 @@ export interface AudioFile {
   _id?: ObjectId;
   playlistId: ObjectId;
   owner: ObjectId;
+  kind?: "track" | "project";  // "project" = reiner Projekt-Eintrag ohne Audio (fehlt = "track")
   coverKey?: string;           // optionales eigenes Cover
   title: string;
   artist?: string;
@@ -38,10 +39,10 @@ export interface AudioFile {
   selectedVersionId: ObjectId; // "Hauptversion"
 
   // --- Mirror der Hauptversion (damit Listen/Player/Streaming unverändert laufen) ---
-  key: string;
-  originalFilename: string;
-  fileSize: number;
-  mimeType: string;
+  key?: string;
+  originalFilename?: string;
+  fileSize?: number;
+  mimeType?: string;
   duration?: number;
   bpm?: number | null;
   musicalKey?: string | null;
