@@ -87,6 +87,7 @@ async function startServer() {
     // Indizes (best effort – Bestandsdaten könnten Konflikte haben)
     try {
       await getDB().collection("users").createIndex({ username: 1 });
+      await getDB().collection("users").createIndex({ googleId: 1 }, { sparse: true });
       await getDB()
         .collection("savedShares")
         .createIndex({ userId: 1, type: 1, token: 1 }, { unique: true });

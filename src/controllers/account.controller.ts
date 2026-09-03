@@ -53,6 +53,7 @@ async function serializeUser(user: User) {
     email: user.email,
     username: user.username,
     avatarUrl: user.avatarKey ? await getDownloadUrl(user.avatarKey) : null,
+    hasPassword: !!user.passwordHash,
   };
 }
 
@@ -264,6 +265,12 @@ export async function requestPasswordChange(req: AuthRequest, res: Response) {
     return res.status(404).json({ error: "User nicht gefunden" });
   }
 
+  if (!user.passwordHash) {
+    return res
+      .status(400)
+      .json({ error: "Dieses Konto nutzt Google-Login und hat kein Passwort" });
+  }
+
   const matches = await bcrypt.compare(currentPassword, user.passwordHash);
   if (!matches) {
     return res.status(401).json({ error: "Aktuelles Passwort falsch" });
@@ -344,9 +351,15 @@ export async function requestAccountDeletion(req: AuthRequest, res: Response) {
     return res.status(404).json({ error: "User nicht gefunden" });
   }
 
-  const matches = await bcrypt.compare(parseResult.data.password, user.passwordHash);
-  if (!matches) {
-    return res.status(401).json({ error: "Passwort falsch" });
+  // Google accounts have no password — the session cookie already proves identity.
+  if (user.passwordHash) {
+    const matches = await bcrypt.compare(
+      parseResult.data.password ?? "",
+      user.passwordHash
+    );
+    if (!matches) {
+      return res.status(401).json({ error: "Passwort falsch" });
+    }
   }
 
   const code = generateSixDigitCode();

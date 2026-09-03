@@ -4,7 +4,8 @@ export interface User {
   _id?: ObjectId;
   email: string;
   username: string;
-  passwordHash: string;
+  passwordHash?: string;
+  googleId?: string;
   emailVerified: boolean;
   emailVerificationCode?: string;
   emailVerificationExpiry?: Date;

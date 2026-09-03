@@ -2,8 +2,13 @@ import { ObjectId } from "mongodb";
 import { getDB } from "../config/db";
 import { User } from "../models/User";
 
-function escapeRegExp(s: string): string {
+export function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Case-insensitive exact-match filter for a string field. */
+export function ciExact(value: string) {
+  return { $regex: `^${escapeRegExp(value)}$`, $options: "i" as const };
 }
 
 /** Ist der Username (case-insensitiv) schon vergeben? `exceptId` schließt den eigenen User aus. */

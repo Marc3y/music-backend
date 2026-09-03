@@ -9,9 +9,40 @@ import { registerSchema, loginSchema, verifyEmailSchema } from "../utils/validat
 import { sendVerificationEmail } from "../services/email.service";
 import { generateAccessToken, generateRefreshToken, generateSixDigitCode } from "../utils/tokens";
 import { DEFAULT_STORAGE_LIMIT_BYTES } from "../config/limits";
-import { usernameTaken } from "../utils/users";
+import { usernameTaken, ciExact } from "../utils/users";
 import { verifyRefreshToken } from "../utils/tokens";
+import { verifySupabaseToken } from "../utils/supabase";
+import { updateUsernameSchema } from "../utils/validators";
 import { ObjectId } from "mongodb";
+
+/** Sets the access/refresh token cookies for a user id. */
+function issueSession(res: Response, userId: string) {
+  const accessToken = generateAccessToken(userId);
+  const refreshToken = generateRefreshToken(userId);
+
+  res.cookie("accessToken", accessToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 15 * 60 * 1000,
+  });
+
+  res.cookie("refreshToken", refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+  });
+}
+
+function publicUser(user: User) {
+  return {
+    id: user._id!.toString(),
+    email: user.email,
+    username: user.username,
+    hasPassword: !!user.passwordHash,
+  };
+}
 
 export async function register(req: Request, res: Response) {
   const parseResult = registerSchema.safeParse(req.body);
@@ -105,6 +136,12 @@ export async function login(req: Request, res: Response) {
     return res.status(401).json({ error: "E-Mail oder Passwort falsch" });
   }
 
+  if (!user.passwordHash) {
+    return res.status(401).json({
+      error: "Dieses Konto wurde mit Google erstellt. Melde dich mit Google an.",
+    });
+  }
+
   if (!user.emailVerified) {
     return res.status(403).json({ error: "E-Mail noch nicht bestätigt" });
   }
@@ -114,25 +151,91 @@ export async function login(req: Request, res: Response) {
     return res.status(401).json({ error: "E-Mail oder Passwort falsch" });
   }
 
-  const userId = user._id!.toString();
-  const accessToken = generateAccessToken(userId);
-  const refreshToken = generateRefreshToken(userId);
+  issueSession(res, user._id!.toString());
+  res.json({ message: "Login erfolgreich", user: publicUser(user) });
+}
 
-  res.cookie("accessToken", accessToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 15 * 60 * 1000,
-  });
+/**
+ * Google sign-in: exchange a Supabase access token for an app session.
+ * - known googleId  -> log in
+ * - matching email  -> link Google to the existing account, log in
+ * - new             -> { needsUsername: true } (frontend then calls /google/complete)
+ */
+export async function googleAuth(req: Request, res: Response) {
+  let identity;
+  try {
+    identity = await verifySupabaseToken(req.body?.accessToken);
+  } catch {
+    return res.status(401).json({ error: "Google-Anmeldung ungültig oder abgelaufen" });
+  }
 
-  res.cookie("refreshToken", refreshToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 30 * 24 * 60 * 60 * 1000,
-  });
+  const users = getDB().collection<User>("users");
 
-  res.json({ message: "Login erfolgreich", user: { id: userId, email: user.email, username: user.username } });
+  const byGoogle = await users.findOne({ googleId: identity.sub });
+  if (byGoogle) {
+    issueSession(res, byGoogle._id!.toString());
+    return res.json({ user: publicUser(byGoogle) });
+  }
+
+  const byEmail = await users.findOne({ email: ciExact(identity.email) });
+  if (byEmail) {
+    await users.updateOne(
+      { _id: byEmail._id },
+      { $set: { googleId: identity.sub, emailVerified: true } }
+    );
+    issueSession(res, byEmail._id!.toString());
+    return res.json({ user: publicUser(byEmail) });
+  }
+
+  return res.json({ needsUsername: true, email: identity.email });
+}
+
+/** Second step for brand-new Google users: they pick a username, we create the account. */
+export async function googleComplete(req: Request, res: Response) {
+  let identity;
+  try {
+    identity = await verifySupabaseToken(req.body?.accessToken);
+  } catch {
+    return res.status(401).json({ error: "Google-Anmeldung ungültig oder abgelaufen" });
+  }
+
+  const users = getDB().collection<User>("users");
+
+  // Race: the account may have been created between /google and /google/complete.
+  const existing =
+    (await users.findOne({ googleId: identity.sub })) ??
+    (await users.findOne({ email: ciExact(identity.email) }));
+  if (existing) {
+    if (!existing.googleId) {
+      await users.updateOne(
+        { _id: existing._id },
+        { $set: { googleId: identity.sub, emailVerified: true } }
+      );
+    }
+    issueSession(res, existing._id!.toString());
+    return res.json({ user: publicUser(existing) });
+  }
+
+  const parsed = updateUsernameSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0].message });
+  }
+  if (await usernameTaken(parsed.data.username)) {
+    return res.status(409).json({ error: "Dieser Username ist bereits vergeben" });
+  }
+
+  const newUser: User = {
+    email: identity.email,
+    username: parsed.data.username,
+    googleId: identity.sub,
+    emailVerified: true,
+    storageLimit: DEFAULT_STORAGE_LIMIT_BYTES,
+    createdAt: new Date(),
+  };
+  const result = await users.insertOne(newUser);
+
+  issueSession(res, result.insertedId.toString());
+  res.status(201).json({ user: publicUser({ ...newUser, _id: result.insertedId }) });
 }
 
 export async function logout(req: Request, res: Response) {

@@ -105,7 +105,7 @@ export const codeConfirmSchema = z.object({
 });
 
 export const deleteAccountRequestSchema = z.object({
-    password: z.string().min(1, "Passwort erforderlich"),
+    password: z.string().min(1, "Passwort erforderlich").optional(),
 });
 
 export const addSavedShareSchema = z.object({
