@@ -8,29 +8,45 @@ export interface SupabaseIdentity {
   avatarUrl?: string;
 }
 
+export class SupabaseConfigError extends Error {}
+export class SupabaseTokenError extends Error {}
+
 /**
  * Verifies a Supabase user access token by asking Supabase who it belongs to.
- * Throws if the token is missing/invalid/expired or has no email.
+ * Throws SupabaseConfigError (server misconfigured) or SupabaseTokenError
+ * (token missing / invalid / expired).
  */
 export async function verifySupabaseToken(
-  accessToken: string
+  accessToken: unknown
 ): Promise<SupabaseIdentity> {
-  if (!accessToken || typeof accessToken !== "string") {
-    throw new Error("no token");
-  }
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    throw new Error("Supabase env not configured");
+    throw new SupabaseConfigError(
+      "SUPABASE_URL / SUPABASE_ANON_KEY not set on the server"
+    );
+  }
+  if (!accessToken || typeof accessToken !== "string") {
+    throw new SupabaseTokenError("no access token in request body");
   }
 
-  const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${SUPABASE_URL.replace(/\/$/, "")}/auth/v1/user`, {
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+  } catch (err) {
+    throw new SupabaseConfigError(
+      `could not reach Supabase: ${(err as Error).message}`
+    );
+  }
 
   if (!res.ok) {
-    throw new Error(`Supabase token invalid (${res.status})`);
+    const body = await res.text().catch(() => "");
+    throw new SupabaseTokenError(
+      `Supabase /auth/v1/user -> ${res.status}: ${body.slice(0, 300)}`
+    );
   }
 
   const user = (await res.json()) as {
@@ -40,7 +56,7 @@ export async function verifySupabaseToken(
   };
 
   if (!user.id || !user.email) {
-    throw new Error("Supabase user without id/email");
+    throw new SupabaseTokenError("Supabase user has no id/email");
   }
 
   const meta = user.user_metadata ?? {};

@@ -17,6 +17,10 @@ import { errorHandler } from "./middleware/errorHandler";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Behind a reverse proxy (nginx). Trust the first hop so req.ip and
+// express-rate-limit use the real client IP from X-Forwarded-For.
+app.set("trust proxy", 1);
+
 app.use(express.json());
 app.use(cookieParser());
 app.use(cors({ origin: process.env.FRONTEND_URL, credentials: true })); // Frontend-URL später anpassen
@@ -84,19 +88,27 @@ async function startServer() {
       { $set: { kind: "track" } }
     );
 
-    // Indizes (best effort – Bestandsdaten könnten Konflikte haben)
-    try {
-      await getDB().collection("users").createIndex({ username: 1 });
-      await getDB().collection("users").createIndex({ googleId: 1 }, { sparse: true });
-      await getDB()
-        .collection("savedShares")
-        .createIndex({ userId: 1, type: 1, token: 1 }, { unique: true });
-      await getDB().collection("playlists").createIndex({ shareToken: 1 });
-      await getDB().collection("playlists").createIndex({ collabToken: 1 });
-      await getDB().collection("playlists").createIndex({ "collaborators.userId": 1 });
-    } catch (err) {
-      console.warn("⚠️  Index-Erstellung übersprungen:", err);
-    }
+    // Indizes (best effort, einzeln – ein Konflikt darf die anderen nicht überspringen)
+    const ensureIndex = async (
+      coll: string,
+      spec: Record<string, 1 | -1>,
+      opts?: Record<string, unknown>
+    ) => {
+      try {
+        await getDB().collection(coll).createIndex(spec as any, opts);
+      } catch (err) {
+        console.warn(
+          `⚠️  Index ${coll} ${JSON.stringify(spec)} übersprungen:`,
+          (err as Error).message
+        );
+      }
+    };
+    await ensureIndex("users", { username: 1 });
+    await ensureIndex("users", { googleId: 1 }, { sparse: true });
+    await ensureIndex("savedShares", { userId: 1, type: 1, token: 1 }, { unique: true });
+    await ensureIndex("playlists", { shareToken: 1 });
+    await ensureIndex("playlists", { collabToken: 1 });
+    await ensureIndex("playlists", { "collaborators.userId": 1 });
 
     app.listen(PORT, () => {
       console.log(`🚀 Server läuft auf http://localhost:${PORT}`);

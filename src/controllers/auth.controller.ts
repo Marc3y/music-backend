@@ -11,9 +11,26 @@ import { generateAccessToken, generateRefreshToken, generateSixDigitCode } from 
 import { DEFAULT_STORAGE_LIMIT_BYTES } from "../config/limits";
 import { usernameTaken, ciExact } from "../utils/users";
 import { verifyRefreshToken } from "../utils/tokens";
-import { verifySupabaseToken } from "../utils/supabase";
+import { verifySupabaseToken, SupabaseConfigError } from "../utils/supabase";
 import { updateUsernameSchema } from "../utils/validators";
 import { ObjectId } from "mongodb";
+
+/** Verifies a Supabase token or sends the right error response. Returns null on failure. */
+async function resolveGoogleIdentity(req: Request, res: Response) {
+  try {
+    return await verifySupabaseToken(req.body?.accessToken);
+  } catch (err) {
+    console.error("[google] token verify failed:", (err as Error).message);
+    if (err instanceof SupabaseConfigError) {
+      res
+        .status(500)
+        .json({ error: "Google-Login ist auf dem Server nicht konfiguriert" });
+    } else {
+      res.status(401).json({ error: "Google-Anmeldung ungültig oder abgelaufen" });
+    }
+    return null;
+  }
+}
 
 /** Sets the access/refresh token cookies for a user id. */
 function issueSession(res: Response, userId: string) {
@@ -162,12 +179,8 @@ export async function login(req: Request, res: Response) {
  * - new             -> { needsUsername: true } (frontend then calls /google/complete)
  */
 export async function googleAuth(req: Request, res: Response) {
-  let identity;
-  try {
-    identity = await verifySupabaseToken(req.body?.accessToken);
-  } catch {
-    return res.status(401).json({ error: "Google-Anmeldung ungültig oder abgelaufen" });
-  }
+  const identity = await resolveGoogleIdentity(req, res);
+  if (!identity) return;
 
   const users = getDB().collection<User>("users");
 
@@ -192,12 +205,8 @@ export async function googleAuth(req: Request, res: Response) {
 
 /** Second step for brand-new Google users: they pick a username, we create the account. */
 export async function googleComplete(req: Request, res: Response) {
-  let identity;
-  try {
-    identity = await verifySupabaseToken(req.body?.accessToken);
-  } catch {
-    return res.status(401).json({ error: "Google-Anmeldung ungültig oder abgelaufen" });
-  }
+  const identity = await resolveGoogleIdentity(req, res);
+  if (!identity) return;
 
   const users = getDB().collection<User>("users");
 
