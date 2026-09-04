@@ -8,6 +8,7 @@ import { ObjectId } from "mongodb";
 import { connectDB, getDB } from "./config/db";
 import { DEFAULT_STORAGE_LIMIT_BYTES } from "./config/limits";
 import { AudioFile } from "./models/AudioFile";
+import { normalizeKey } from "./utils/musicalKey";
 import authRoutes from "./routes/auth.routes";
 import accountRoutes from "./routes/account.routes";
 import playlistsRoutes from "./routes/playlists.routes";
@@ -87,6 +88,32 @@ async function startServer() {
       { kind: { $exists: false } },
       { $set: { kind: "track" } }
     );
+
+    // Tonarten auf kompakte englische Notation umstellen ("F# moll" -> "F#m") – idempotent
+    {
+      const cursor = audioFiles.find({
+        $or: [
+          { musicalKey: { $regex: "(moll|dur)$", $options: "i" } },
+          { "versions.musicalKey": { $regex: "(moll|dur)$", $options: "i" } },
+        ],
+      } as any);
+      let keyMigrated = 0;
+      for await (const doc of cursor) {
+        const d = doc as any;
+        const set: Record<string, unknown> = {};
+        if (typeof d.musicalKey === "string") set.musicalKey = normalizeKey(d.musicalKey);
+        (d.versions ?? []).forEach((v: any, i: number) => {
+          if (typeof v.musicalKey === "string") {
+            set[`versions.${i}.musicalKey`] = normalizeKey(v.musicalKey);
+          }
+        });
+        if (Object.keys(set).length) {
+          await audioFiles.updateOne({ _id: d._id }, { $set: set });
+          keyMigrated++;
+        }
+      }
+      if (keyMigrated > 0) console.log(`🎼 ${keyMigrated} Track(s) Tonart-Notation migriert`);
+    }
 
     // Indizes (best effort, einzeln – ein Konflikt darf die anderen nicht überspringen)
     const ensureIndex = async (

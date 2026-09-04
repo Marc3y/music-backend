@@ -20,12 +20,21 @@ import {
   deleteObject,
 } from "../services/storage.service";
 import { AudioFile } from "../models/AudioFile";
+import { User } from "../models/User";
 import { findSelectedVersion } from "../utils/trackVersions";
 import {
   getEditablePlaylist,
   isOwner,
   canViewShared,
 } from "../utils/playlistAccess";
+
+/** username + kurzlebige Avatar-URL für die Anzeige auf der Playlist-Seite */
+async function serializeUserBrief(u: Pick<User, "username" | "avatarKey">) {
+  return {
+    username: u.username,
+    avatarUrl: u.avatarKey ? await getDownloadUrl(u.avatarKey) : null,
+  };
+}
 
 
 export async function createPlaylist(req: AuthRequest, res: Response) {
@@ -82,7 +91,28 @@ export async function getPlaylistById(req: AuthRequest, res: Response) {
 
   const coverUrl = playlist.coverKey ? await getDownloadUrl(playlist.coverKey) : null;
   const role = isOwner(playlist, req.userId) ? "owner" : "collaborator";
-  res.json({ ...playlist, coverUrl, role });
+
+  // Owner + aktive (beigetretene) Mitglieder für die Anzeige auflösen
+  const users = getDB().collection<User>("users");
+  const joinedIds = (playlist.collaborators ?? [])
+    .map((c) => c.userId)
+    .filter((id): id is ObjectId => !!id);
+  const ids = [playlist.owner, ...joinedIds];
+  const userDocs = await users
+    .find({ _id: { $in: ids } }, { projection: { username: 1, avatarKey: 1 } })
+    .toArray();
+  const byId = new Map(userDocs.map((u) => [u._id!.toString(), u]));
+
+  const ownerDoc = byId.get(playlist.owner.toString());
+  const ownerUser = ownerDoc ? await serializeUserBrief(ownerDoc) : null;
+  const activeCollaborators = await Promise.all(
+    joinedIds
+      .map((id) => byId.get(id.toString()))
+      .filter((u): u is (typeof userDocs)[number] => !!u)
+      .map(serializeUserBrief)
+  );
+
+  res.json({ ...playlist, coverUrl, role, ownerUser, activeCollaborators });
 }
 
 export async function updatePlaylist(req: AuthRequest, res: Response) {

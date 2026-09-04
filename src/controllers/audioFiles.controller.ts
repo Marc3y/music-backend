@@ -18,6 +18,7 @@ import {
   confirmVersionProjectSchema,
 } from "../utils/validators";
 import { isAllowedAudioType, isAllowedProjectFile } from "../utils/audioValidation";
+import { normalizeKey } from "../utils/musicalKey";
 import {
   generateObjectKey,
   getUploadUrl,
@@ -158,12 +159,18 @@ export async function confirmAudioUpload(req: AuthRequest, res: Response) {
   // Titel aus Dateinamen ableiten (ohne Endung) als Default
   const defaultTitle = originalFilename.replace(/\.[^/.]+$/, "");
 
+  // Default-Artist = Username des Uploaders (eingebettete ID3-Tags überschreiben das später)
+  const uploader = await db
+    .collection<User>("users")
+    .findOne({ _id: new ObjectId(req.userId) }, { projection: { username: 1 } });
+
   const v0 = buildVersion(key, originalFilename, fileSize, mimeType);
 
   const newAudioFile: AudioFile = {
     playlistId: playlist._id!,
     owner: new ObjectId(req.userId),
     title: defaultTitle,
+    artist: uploader?.username,
     order: Date.now(),
     shareEnabled: false,
     shareProject: false,
@@ -750,7 +757,7 @@ export async function updateVersion(req: AuthRequest, res: Response) {
   const set: Record<string, unknown> = {};
   if (parsed.data.bpm !== undefined) set["versions.$.bpm"] = parsed.data.bpm;
   if (parsed.data.musicalKey !== undefined) {
-    set["versions.$.musicalKey"] = parsed.data.musicalKey || null;
+    set["versions.$.musicalKey"] = normalizeKey(parsed.data.musicalKey) || null;
   }
   if (parsed.data.label !== undefined) set["versions.$.label"] = parsed.data.label;
 

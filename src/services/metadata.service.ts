@@ -6,6 +6,8 @@ import { getDB } from "../config/db";
 import { AudioFile } from "../models/AudioFile";
 import { ObjectId } from "mongodb";
 import { writeMirror } from "../utils/trackVersions";
+import { normalizeKey } from "../utils/musicalKey";
+import { User } from "../models/User";
 
 async function refreshMirror(trackId: ObjectId) {
   await writeMirror(getDB().collection<AudioFile>("audioFiles"), trackId);
@@ -52,7 +54,7 @@ export async function processAudioMetadata(
       versionSet["versions.$.bpm"] = embeddedBpm;
     }
     if (embeddedKey && (version.musicalKey === null || version.musicalKey === undefined)) {
-      versionSet["versions.$.musicalKey"] = embeddedKey;
+      versionSet["versions.$.musicalKey"] = normalizeKey(embeddedKey);
     }
 
     await audioFiles.updateOne(
@@ -70,8 +72,15 @@ export async function processAudioMetadata(
       ) {
         trackSet.title = embeddedTitle;
       }
-      if (embeddedArtist && !track.artist) {
-        trackSet.artist = embeddedArtist;
+      if (embeddedArtist) {
+        // Embedded ID3-Artist gewinnt gegen den Uploader-Username-Default,
+        // aber nicht gegen eine manuelle Eingabe des Nutzers.
+        const uploader = await db
+          .collection<User>("users")
+          .findOne({ _id: track.owner }, { projection: { username: 1 } });
+        if (!track.artist || track.artist === uploader?.username) {
+          trackSet.artist = embeddedArtist;
+        }
       }
       if (Object.keys(trackSet).length > 0) {
         await audioFiles.updateOne({ _id: trackId }, { $set: trackSet });
