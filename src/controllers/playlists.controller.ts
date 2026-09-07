@@ -1,6 +1,7 @@
 import { Response } from "express";
 import { ObjectId } from "mongodb";
 import { randomBytes } from "crypto";
+import bcrypt from "bcrypt";
 import { getDB } from "../config/db";
 import { Playlist } from "../models/Playlist";
 import { SavedShare } from "../models/SavedShare";
@@ -11,6 +12,7 @@ import {
   uploadUrlRequestSchema,
   updatePlaylistShareSchema,
   updateCollaboratorsSchema,
+  unlockShareSchema,
 } from "../utils/validators";
 import {
   generateObjectKey,
@@ -25,8 +27,19 @@ import { findSelectedVersion } from "../utils/trackVersions";
 import {
   getEditablePlaylist,
   isOwner,
+  isCollaborator,
   canViewShared,
 } from "../utils/playlistAccess";
+import { hasPlus, type Tier } from "../config/limits";
+import { notifyCollabActivity, notifyListen } from "../services/notifications.service";
+import { verifyShareUnlock, generateShareUnlock } from "../utils/tokens";
+
+async function ownerHasPlus(ownerId: ObjectId): Promise<boolean> {
+  const u = await getDB()
+    .collection<User>("users")
+    .findOne({ _id: ownerId }, { projection: { tier: 1 } });
+  return hasPlus(u?.tier as Tier | undefined);
+}
 
 /** username + kurzlebige Avatar-URL für die Anzeige auf der Playlist-Seite */
 async function serializeUserBrief(u: Pick<User, "username" | "avatarKey">) {
@@ -68,9 +81,10 @@ export async function getPlaylists(req: AuthRequest, res: Response) {
 
   // Für jede Playlist eine kurzlebige Cover-URL generieren, falls vorhanden
   const withCoverUrls = await Promise.all(
-    userPlaylists.map(async (playlist) => ({
+    userPlaylists.map(async ({ sharePasswordHash, ...playlist }) => ({
       ...playlist,
       coverUrl: playlist.coverKey ? await getDownloadUrl(playlist.coverKey) : null,
+      sharePasswordSet: !!sharePasswordHash,
     }))
   );
 
@@ -99,7 +113,7 @@ export async function getPlaylistById(req: AuthRequest, res: Response) {
     .filter((id): id is ObjectId => !!id);
   const ids = [playlist.owner, ...joinedIds];
   const userDocs = await users
-    .find({ _id: { $in: ids } }, { projection: { username: 1, avatarKey: 1 } })
+    .find({ _id: { $in: ids } }, { projection: { username: 1, avatarKey: 1, tier: 1 } })
     .toArray();
   const byId = new Map(userDocs.map((u) => [u._id!.toString(), u]));
 
@@ -112,7 +126,16 @@ export async function getPlaylistById(req: AuthRequest, res: Response) {
       .map(serializeUserBrief)
   );
 
-  res.json({ ...playlist, coverUrl, role, ownerUser, activeCollaborators });
+  const { sharePasswordHash, ...safePlaylist } = playlist;
+  res.json({
+    ...safePlaylist,
+    coverUrl,
+    role,
+    ownerUser,
+    activeCollaborators,
+    sharePasswordSet: !!sharePasswordHash,
+    ownerTier: ownerDoc?.tier ?? "free",
+  });
 }
 
 export async function updatePlaylist(req: AuthRequest, res: Response) {
@@ -137,6 +160,13 @@ export async function updatePlaylist(req: AuthRequest, res: Response) {
     { $set: { ...parseResult.data, updatedAt: new Date() } },
     { returnDocument: "after" }
   );
+
+  if (
+    parseResult.data.name !== undefined &&
+    parseResult.data.name !== editable.name
+  ) {
+    void notifyCollabActivity(editable, req.userId!, "collab_renamed");
+  }
 
   res.json(result);
 }
@@ -226,6 +256,8 @@ export async function getPlaylistCoverUploadUrl(req: AuthRequest, res: Response)
     .collection<Playlist>("playlists")
     .updateOne({ _id: playlist._id }, { $set: { coverKey: key, updatedAt: new Date() } });
 
+  void notifyCollabActivity(playlist, req.userId!, "collab_cover");
+
   res.json({ uploadUrl, key });
 }
 
@@ -257,6 +289,7 @@ export async function updatePlaylistShare(req: AuthRequest, res: Response) {
   const d = parsed.data;
 
   const set: Partial<Playlist> = { updatedAt: new Date() };
+  const unset: Record<string, ""> = {};
   if (d.shareEnabled !== undefined) {
     set.shareEnabled = d.shareEnabled;
     if (d.shareEnabled && !playlist.shareToken) {
@@ -268,8 +301,22 @@ export async function updatePlaylistShare(req: AuthRequest, res: Response) {
   if (d.allowedUsernames !== undefined) {
     set.allowedUsernames = [...new Set(d.allowedUsernames.map((u) => u.toLowerCase()))];
   }
+  if (d.sharePassword !== undefined) {
+    if (!(await ownerHasPlus(playlist.owner))) {
+      return res
+        .status(403)
+        .json({ error: "Passwortschutz erfordert music+", upgradeRequired: true });
+    }
+    if (d.sharePassword === null) {
+      unset.sharePasswordHash = "";
+    } else {
+      set.sharePasswordHash = await bcrypt.hash(d.sharePassword, 10);
+    }
+  }
 
-  await playlists.updateOne({ _id: playlist._id }, { $set: set });
+  const update: Record<string, unknown> = { $set: set };
+  if (Object.keys(unset).length) update.$unset = unset;
+  await playlists.updateOne({ _id: playlist._id }, update);
   const updated = await playlists.findOne({ _id: playlist._id });
 
   const token = updated?.shareToken;
@@ -293,7 +340,13 @@ export async function updatePlaylistShare(req: AuthRequest, res: Response) {
   }
 
   const coverUrl = updated?.coverKey ? await getDownloadUrl(updated.coverKey) : null;
-  res.json({ ...updated, coverUrl, role: "owner" });
+  const { sharePasswordHash, ...safe } = updated ?? {};
+  res.json({
+    ...safe,
+    coverUrl,
+    role: "owner",
+    sharePasswordSet: !!sharePasswordHash,
+  });
 }
 
 // PATCH /playlists/:id/collaborators  (owner-only)
@@ -310,6 +363,15 @@ export async function updateCollaborators(req: AuthRequest, res: Response) {
     (u) => u !== undefined
   );
   const existing = playlist.collaborators ?? [];
+
+  // Neue Mitglieder hinzuzufügen erfordert music+ (Entfernen bleibt immer erlaubt).
+  const isAdding = wanted.some((u) => !existing.some((c) => c.username === u));
+  if (isAdding && !(await ownerHasPlus(playlist.owner))) {
+    return res.status(403).json({
+      error: "Gemeinsames Bearbeiten erfordert music+",
+      upgradeRequired: true,
+    });
+  }
   const byName = new Map(existing.map((c) => [c.username, c]));
 
   const next = wanted.map(
@@ -365,6 +427,7 @@ export async function joinPlaylist(req: AuthRequest, res: Response) {
       { _id: playlist._id, "collaborators.username": unameLower },
       { $set: { "collaborators.$.userId": new ObjectId(req.userId) } }
     );
+    void notifyCollabActivity(playlist, req.userId!, "collab_joined");
   }
 
   await getDB()
@@ -407,7 +470,52 @@ async function loadSharedPlaylist(
     });
     return null;
   }
+
+  // Passwortschutz (music+): Owner/Collaborator sind ausgenommen.
+  if (
+    playlist.sharePasswordHash &&
+    !isOwner(playlist, req.userId) &&
+    !isCollaborator(playlist, req.userId)
+  ) {
+    const key =
+      (typeof req.query.k === "string" && req.query.k) ||
+      (typeof req.headers["x-share-key"] === "string" &&
+        (req.headers["x-share-key"] as string)) ||
+      "";
+    if (!key || !verifyShareUnlock(key, token)) {
+      res.status(401).json({
+        error: "Passwort erforderlich",
+        needsPassword: true,
+        name: playlist.name,
+      });
+      return null;
+    }
+  }
+
   return { playlist, canDownload: !!playlist.shareAllowDownload };
+}
+
+// POST /playlists/public/:token/unlock  { password }
+export async function unlockSharedPlaylist(req: AuthRequest, res: Response) {
+  const token = typeof req.params.token === "string" ? req.params.token : null;
+  if (!token) return res.status(400).json({ error: "Ungültiger Link" });
+
+  const parsed = unlockShareSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Passwort erforderlich" });
+  }
+
+  const playlist = await getDB()
+    .collection<Playlist>("playlists")
+    .findOne({ shareToken: token });
+  if (!playlist || !playlist.shareEnabled || !playlist.sharePasswordHash) {
+    return res.status(404).json({ error: "Playlist nicht gefunden" });
+  }
+
+  const ok = await bcrypt.compare(parsed.data.password, playlist.sharePasswordHash);
+  if (!ok) return res.status(401).json({ error: "Falsches Passwort" });
+
+  res.json({ unlockKey: generateShareUnlock(token) });
 }
 
 export async function getSharedPlaylist(req: AuthRequest, res: Response) {
@@ -466,6 +574,7 @@ export async function getSharedPlaylistStream(req: AuthRequest, res: Response) {
   if (!ctx) return;
   const key = ctx.version?.key ?? ctx.track.key;
   if (!key) return res.status(404).json({ error: "Kein Audio für diesen Eintrag" });
+  void notifyListen(ctx.track, req.userId);
   res.json({ streamUrl: await getDownloadUrl(key) });
 }
 

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth } from "../middleware/auth.middleware";
+import { requireAuth, optionalAuth } from "../middleware/auth.middleware";
 import { asyncHandler } from "../middleware/errorHandler";
 import {
   initAudioUpload,
@@ -33,7 +33,7 @@ import {
 const router = Router();
 
 // Öffentliche Routen (kein Login) - MÜSSEN vor requireAuth stehen
-router.get("/public/stream/:shareToken", streamSharedAudioFile);
+router.get("/public/stream/:shareToken", optionalAuth, streamSharedAudioFile);
 router.get("/public/project/:token", getSharedProject);
 
 router.use(requireAuth);

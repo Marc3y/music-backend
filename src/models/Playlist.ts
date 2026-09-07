@@ -19,6 +19,8 @@ export interface Playlist {
   shareRestricted?: boolean; // true = nur allowedUsernames
   shareAllowDownload?: boolean;
   allowedUsernames?: string[]; // lowercase
+  /** bcrypt-Hash; wenn gesetzt, muss ein Passwort eingegeben werden (music+). */
+  sharePasswordHash?: string;
 
   // --- Collaboration ---
   collabToken?: string;

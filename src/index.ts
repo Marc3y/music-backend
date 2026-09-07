@@ -13,6 +13,7 @@ import authRoutes from "./routes/auth.routes";
 import accountRoutes from "./routes/account.routes";
 import playlistsRoutes from "./routes/playlists.routes";
 import audioFilesRoutes from "./routes/audioFiles.routes";
+import notificationsRoutes from "./routes/notifications.routes";
 import { errorHandler } from "./middleware/errorHandler";
 
 const app = express();
@@ -30,6 +31,7 @@ app.use("/auth", authRoutes);
 app.use("/account", accountRoutes);
 app.use("/playlists", playlistsRoutes);
 app.use("/audio-files", audioFilesRoutes);
+app.use("/notifications", notificationsRoutes);
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
@@ -45,6 +47,11 @@ async function startServer() {
         { storageLimit: { $exists: false } },
         { $set: { storageLimit: DEFAULT_STORAGE_LIMIT_BYTES } }
       );
+
+    // Abo-Stufe: alle ohne Feld auf "free" (idempotent)
+    await getDB()
+      .collection("users")
+      .updateMany({ tier: { $exists: false } }, { $set: { tier: "free" } });
 
     // Bestandstracks in das Versions-Modell überführen (idempotent)
     const audioFiles = getDB().collection<AudioFile>("audioFiles");
@@ -136,6 +143,13 @@ async function startServer() {
     await ensureIndex("playlists", { shareToken: 1 });
     await ensureIndex("playlists", { collabToken: 1 });
     await ensureIndex("playlists", { "collaborators.userId": 1 });
+    await ensureIndex("notifications", { userId: 1, _id: -1 });
+    await ensureIndex("notifications", { userId: 1, readAt: 1 });
+    await ensureIndex(
+      "notifications",
+      { createdAt: 1 },
+      { expireAfterSeconds: 60 * 60 * 24 * 60 } // 60 Tage aufheben
+    );
 
     app.listen(PORT, () => {
       console.log(`🚀 Server läuft auf http://localhost:${PORT}`);

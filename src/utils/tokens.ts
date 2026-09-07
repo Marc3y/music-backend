@@ -22,3 +22,17 @@ export function verifyRefreshToken(token: string): { userId: string } {
 export function generateSixDigitCode(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
+
+/** Kurzlebiger Nachweis, dass das Passwort eines geteilten Links eingegeben wurde. */
+export function generateShareUnlock(shareToken: string): string {
+  return jwt.sign({ st: shareToken }, ACCESS_SECRET, { expiresIn: "12h" });
+}
+
+export function verifyShareUnlock(token: string, shareToken: string): boolean {
+  try {
+    const payload = jwt.verify(token, ACCESS_SECRET) as { st?: string };
+    return payload.st === shareToken;
+  } catch {
+    return false;
+  }
+}

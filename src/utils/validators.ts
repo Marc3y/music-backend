@@ -120,6 +120,12 @@ export const updatePlaylistShareSchema = z.object({
     shareRestricted: z.boolean().optional(),
     shareAllowDownload: z.boolean().optional(),
     allowedUsernames: z.array(usernameEntry).max(100).optional(),
+    // null = Passwortschutz entfernen; String = neues Passwort setzen (music+)
+    sharePassword: z.string().min(1).max(200).nullable().optional(),
+});
+
+export const unlockShareSchema = z.object({
+    password: z.string().min(1).max(200),
 });
 
 export const updateCollaboratorsSchema = z.object({

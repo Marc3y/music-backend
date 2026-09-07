@@ -18,7 +18,12 @@ import { generateSixDigitCode } from "../utils/tokens";
 import { usernameTaken } from "../utils/users";
 import { findSelectedVersion } from "../utils/trackVersions";
 import { SavedShare } from "../models/SavedShare";
-import { DEFAULT_STORAGE_LIMIT_BYTES } from "../config/limits";
+import {
+  DEFAULT_STORAGE_LIMIT_BYTES,
+  storageLimitForTier,
+  isUnlimited,
+  type Tier,
+} from "../config/limits";
 import {
   sendPasswordChangeCodeEmail,
   sendAccountDeletionCodeEmail,
@@ -54,13 +59,14 @@ async function serializeUser(user: User) {
     username: user.username,
     avatarUrl: user.avatarKey ? await getDownloadUrl(user.avatarKey) : null,
     hasPassword: !!user.passwordHash,
+    tier: (user.tier ?? "free") as Tier,
   };
 }
 
-export function resolveStorageLimit(user: Pick<User, "storageLimit">): number {
-  return typeof user.storageLimit === "number"
-    ? user.storageLimit
-    : DEFAULT_STORAGE_LIMIT_BYTES;
+export function resolveStorageLimit(
+  user: Pick<User, "storageLimit" | "tier">
+): number {
+  return storageLimitForTier(user.tier, user.storageLimit);
 }
 
 // Belegter Speicher = Audio ALLER Versionen + alle Projektdateien
@@ -109,7 +115,27 @@ export async function getStorageSummary(req: AuthRequest, res: Response) {
   }
 
   const used = await getStorageUsage(userId);
-  res.json({ used, limit: resolveStorageLimit(user) });
+  res.json({
+    used,
+    limit: resolveStorageLimit(user),
+    unlimited: isUnlimited(user.tier),
+    tier: (user.tier ?? "free") as Tier,
+  });
+}
+
+export async function getSubscription(req: AuthRequest, res: Response) {
+  const users = getDB().collection<User>("users");
+  const user = await users.findOne(
+    { _id: new ObjectId(req.userId) },
+    { projection: { tier: 1, storageLimit: 1 } }
+  );
+  if (!user) return res.status(404).json({ error: "User nicht gefunden" });
+
+  res.json({
+    tier: (user.tier ?? "free") as Tier,
+    storageLimit: resolveStorageLimit(user),
+    unlimited: isUnlimited(user.tier),
+  });
 }
 
 export async function getUsage(req: AuthRequest, res: Response) {
@@ -163,7 +189,14 @@ export async function getUsage(req: AuthRequest, res: Response) {
 
   const used = allTracks.reduce((sum, t) => sum + trackTotalSize(t), 0);
 
-  res.json({ used, limit: resolveStorageLimit(user), tracks, projects });
+  res.json({
+    used,
+    limit: resolveStorageLimit(user),
+    unlimited: isUnlimited(user.tier),
+    tier: (user.tier ?? "free") as Tier,
+    tracks,
+    projects,
+  });
 }
 
 export async function getMe(req: AuthRequest, res: Response) {

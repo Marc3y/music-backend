@@ -14,11 +14,13 @@ import {
   getSharedPlaylist,
   getSharedPlaylistStream,
   getSharedPlaylistProject,
+  unlockSharedPlaylist,
 } from "../controllers/playlists.controller";
 
 const router = Router();
 
 // Öffentliche Playlist-Ansicht (Login optional) - VOR requireAuth
+router.post("/public/:token/unlock", asyncHandler(unlockSharedPlaylist));
 router.get("/public/:token", optionalAuth, asyncHandler(getSharedPlaylist));
 router.get(
   "/public/:token/tracks/:trackId/stream",

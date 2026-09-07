@@ -36,6 +36,10 @@ import {
   findSelectedVersion,
   writeMirror,
 } from "../utils/trackVersions";
+import {
+  notifyCollabActivity,
+  notifyListen,
+} from "../services/notifications.service";
 
 // Playlist zurückgeben, wenn der User sie bearbeiten darf (Owner oder Mitglied)
 async function verifyPlaylistOwnership(playlistId: string, userId: string) {
@@ -190,6 +194,10 @@ export async function confirmAudioUpload(req: AuthRequest, res: Response) {
 
   const result = await audioFiles.insertOne(newAudioFile);
   processAudioMetadata(result.insertedId, v0._id, key);
+  void notifyCollabActivity(playlist, req.userId!, "collab_track_added", {
+    trackId: result.insertedId,
+    trackTitle: defaultTitle,
+  });
   res.status(201).json({ ...newAudioFile, _id: result.insertedId });
 }
 
@@ -259,6 +267,10 @@ export async function confirmProjectUpload(req: AuthRequest, res: Response) {
   };
 
   const result = await audioFiles.insertOne(newEntry);
+  void notifyCollabActivity(playlist, req.userId!, "collab_track_added", {
+    trackId: result.insertedId,
+    trackTitle: newEntry.title,
+  });
   res.status(201).json({ ...newEntry, _id: result.insertedId });
 }
 
@@ -409,6 +421,15 @@ export async function deleteAudioFile(req: AuthRequest, res: Response) {
   await audioFiles.deleteOne({ _id: track._id });
   await dropSavedShares(track.shareToken, track.projectShareToken);
 
+  const playlist = await db
+    .collection<Playlist>("playlists")
+    .findOne({ _id: track.playlistId });
+  if (playlist) {
+    void notifyCollabActivity(playlist, req.userId!, "collab_track_removed", {
+      trackTitle: track.title,
+    });
+  }
+
   res.json({ message: "Track gelöscht" });
 }
 
@@ -432,6 +453,7 @@ export async function streamAudioFile(req: AuthRequest, res: Response) {
   if (!track.key) {
     return res.status(404).json({ error: "Kein Audio für diesen Eintrag" });
   }
+  void notifyListen(track, req.userId);
   const streamUrl = await getDownloadUrl(track.key);
   res.json({ streamUrl });
 }
@@ -587,6 +609,7 @@ export async function streamSharedAudioFile(req: AuthRequest, res: Response) {
   if (!streamKey) {
     return res.status(404).json({ error: "Kein Audio verfügbar" });
   }
+  void notifyListen(track, req.userId);
   const streamUrl = await getDownloadUrl(streamKey);
 
   let projectUrl: string | undefined;
@@ -731,6 +754,16 @@ export async function confirmVersionUpload(req: AuthRequest, res: Response) {
     }
   );
   await writeMirror(audioFiles, track._id!);
+
+  const playlist = await db
+    .collection<Playlist>("playlists")
+    .findOne({ _id: track.playlistId });
+  if (playlist) {
+    void notifyCollabActivity(playlist, req.userId!, "collab_version_added", {
+      trackId: track._id,
+      trackTitle: track.title,
+    });
+  }
 
   if (!isProject) processAudioMetadata(track._id!, version._id, key);
   await sendTrack(res, track._id!);

@@ -58,6 +58,7 @@ function publicUser(user: User) {
     email: user.email,
     username: user.username,
     hasPassword: !!user.passwordHash,
+    tier: user.tier ?? "free",
   };
 }
 
