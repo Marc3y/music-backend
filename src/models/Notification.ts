@@ -6,7 +6,12 @@ export type NotificationType =
   | "collab_cover" // Collaborator hat das Playlist-Cover geändert
   | "collab_track_added" // Collaborator hat einen Track hochgeladen
   | "collab_track_removed" // Collaborator hat einen Track gelöscht
-  | "collab_version_added" // Collaborator hat eine neue Version hochgeladen
+  | "collab_track_edited" // Titel / Interpret / Beschreibung / BPM / Key geändert
+  | "collab_track_cover" // Track-Cover geändert
+  | "collab_version_added" // neue Version / Projektdatei hochgeladen
+  | "collab_version_removed" // Version / Projektdatei gelöscht
+  | "collab_version_selected" // andere Hauptversion gewählt
+  | "collab_reordered" // Reihenfolge geändert
   | "collab_joined"; // jemand ist der Playlist als Mitglied beigetreten
 
 export interface Notification {

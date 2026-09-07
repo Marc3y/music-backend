@@ -145,6 +145,9 @@ async function startServer() {
     await ensureIndex("playlists", { "collaborators.userId": 1 });
     await ensureIndex("notifications", { userId: 1, _id: -1 });
     await ensureIndex("notifications", { userId: 1, readAt: 1 });
+    await ensureIndex("trackEvents", { ownerId: 1, type: 1, createdAt: -1 });
+    await ensureIndex("trackEvents", { trackId: 1, type: 1 });
+    await ensureIndex("trackEvents", { ownerId: 1, userId: 1, type: 1 });
     await ensureIndex(
       "notifications",
       { createdAt: 1 },

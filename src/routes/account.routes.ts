@@ -6,6 +6,7 @@ import {
   getMe,
   getStorageSummary,
   getSubscription,
+  getAccountStats,
   getUsage,
   updateUsername,
   getAvatarUploadUrl,
@@ -26,6 +27,7 @@ router.use(requireAuth);
 router.get("/me", asyncHandler(getMe));
 router.get("/storage", asyncHandler(getStorageSummary));
 router.get("/subscription", asyncHandler(getSubscription));
+router.get("/stats", asyncHandler(getAccountStats));
 router.get("/usage", asyncHandler(getUsage));
 router.get("/saved-shares", asyncHandler(listSavedShares));
 router.post("/saved-shares", asyncHandler(addSavedShare));

@@ -34,6 +34,7 @@ import {
   getDownloadUrl,
   deleteObject,
 } from "../services/storage.service";
+import { ownerStats } from "../services/trackStats.service";
 
 const CODE_TTL_MS = 15 * 60 * 1000;
 
@@ -121,6 +122,10 @@ export async function getStorageSummary(req: AuthRequest, res: Response) {
     unlimited: isUnlimited(user.tier),
     tier: (user.tier ?? "free") as Tier,
   });
+}
+
+export async function getAccountStats(req: AuthRequest, res: Response) {
+  res.json(await ownerStats(new ObjectId(req.userId)));
 }
 
 export async function getSubscription(req: AuthRequest, res: Response) {

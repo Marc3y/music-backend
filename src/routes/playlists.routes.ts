@@ -14,6 +14,7 @@ import {
   getSharedPlaylist,
   getSharedPlaylistStream,
   getSharedPlaylistProject,
+  logSharedPlaylistListen,
   unlockSharedPlaylist,
 } from "../controllers/playlists.controller";
 
@@ -26,6 +27,11 @@ router.get(
   "/public/:token/tracks/:trackId/stream",
   optionalAuth,
   asyncHandler(getSharedPlaylistStream)
+);
+router.post(
+  "/public/:token/tracks/:trackId/listened",
+  optionalAuth,
+  asyncHandler(logSharedPlaylistListen)
 );
 router.get(
   "/public/:token/tracks/:trackId/project",

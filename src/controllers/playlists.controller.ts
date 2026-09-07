@@ -32,6 +32,7 @@ import {
 } from "../utils/playlistAccess";
 import { hasPlus, type Tier } from "../config/limits";
 import { notifyCollabActivity, notifyListen } from "../services/notifications.service";
+import { logTrackEvent, ownerStats } from "../services/trackStats.service";
 import { verifyShareUnlock, generateShareUnlock } from "../utils/tokens";
 
 async function ownerHasPlus(ownerId: ObjectId): Promise<boolean> {
@@ -578,6 +579,17 @@ export async function getSharedPlaylistStream(req: AuthRequest, res: Response) {
   res.json({ streamUrl: await getDownloadUrl(key) });
 }
 
+// POST /playlists/public/:token/tracks/:trackId/listened  (15s-Schwelle vom Client)
+export async function logSharedPlaylistListen(req: AuthRequest, res: Response) {
+  const ctx = await loadSharedTrack(req, res);
+  if (!ctx) return;
+  if (req.userId && ctx.track.owner.equals(req.userId)) {
+    return res.json({ ok: true, counted: false });
+  }
+  void logTrackEvent(ctx.track._id!, ctx.track.owner, req.userId, "listen");
+  res.json({ ok: true, counted: true });
+}
+
 export async function getSharedPlaylistProject(req: AuthRequest, res: Response) {
   const ctx = await loadSharedTrack(req, res);
   if (!ctx) return;
@@ -587,5 +599,8 @@ export async function getSharedPlaylistProject(req: AuthRequest, res: Response) 
   const key = ctx.version?.projectKey;
   if (!key) return res.status(404).json({ error: "Keine Projektdatei" });
   const filename = ctx.version?.projectFilename ?? "projekt.zip";
+  if (!req.userId || !ctx.track.owner.equals(req.userId)) {
+    void logTrackEvent(ctx.track._id!, ctx.track.owner, req.userId, "download");
+  }
   res.json({ url: await getDownloadUrlAttachment(key, filename), filename });
 }

@@ -40,10 +40,34 @@ import {
   notifyCollabActivity,
   notifyListen,
 } from "../services/notifications.service";
+import { logTrackEvent, trackCounts } from "../services/trackStats.service";
+import { TrackEvent } from "../models/TrackEvent";
 
 // Playlist zurückgeben, wenn der User sie bearbeiten darf (Owner oder Mitglied)
 async function verifyPlaylistOwnership(playlistId: string, userId: string) {
   return getEditablePlaylist(playlistId, userId);
+}
+
+// Alle Collaborator einer Playlist über die Aktion eines Users informieren.
+async function notifyForTrack(
+  track: Pick<AudioFile, "playlistId" | "_id" | "title">,
+  actorId: string,
+  type:
+    | "collab_track_edited"
+    | "collab_track_cover"
+    | "collab_version_added"
+    | "collab_version_removed"
+    | "collab_version_selected"
+    | "collab_reordered"
+) {
+  const playlist = await getDB()
+    .collection<Playlist>("playlists")
+    .findOne({ _id: track.playlistId });
+  if (!playlist) return;
+  await notifyCollabActivity(playlist, actorId, type, {
+    trackId: track._id,
+    trackTitle: track.title,
+  });
 }
 
 async function safeDelete(key?: string) {
@@ -356,6 +380,8 @@ export async function updateAudioFile(req: AuthRequest, res: Response) {
     return res.status(404).json({ error: "Track nicht gefunden" });
   }
 
+  void notifyForTrack(result, req.userId!, "collab_track_edited");
+
   const coverUrl = result.coverKey ? await getDownloadUrl(result.coverKey) : null;
   res.json({ ...result, coverUrl });
 }
@@ -391,6 +417,8 @@ export async function getAudioFileCoverUploadUrl(req: AuthRequest, res: Response
   const uploadUrl = await getUploadUrl(key, contentType);
 
   await audioFiles.updateOne({ _id: track._id }, { $set: { coverKey: key, updatedAt: new Date() } });
+
+  void notifyForTrack(track, req.userId!, "collab_track_cover");
 
   res.json({ uploadUrl, key });
 }
@@ -587,6 +615,9 @@ export async function getSharedProject(req: AuthRequest, res: Response) {
 
   const filename = version.projectFilename ?? "projekt.zip";
   const url = await getDownloadUrlAttachment(version.projectKey, filename);
+  if (!req.userId || !track.owner.equals(req.userId)) {
+    void logTrackEvent(track._id!, track.owner, req.userId, "download");
+  }
   res.json({ url, filename, trackTitle: track.title });
 }
 
@@ -620,6 +651,7 @@ export async function streamSharedAudioFile(req: AuthRequest, res: Response) {
   }
 
   res.json({
+    _id: track._id!.toString(),
     streamUrl,
     title: track.title,
     artist: track.artist,
@@ -687,6 +719,7 @@ export async function reorderAudioFiles(req: AuthRequest, res: Response) {
   }));
 
   await audioFiles.bulkWrite(bulkOps);
+  void notifyCollabActivity(playlist, req.userId!, "collab_reordered");
   res.json({ message: "Reihenfolge gespeichert" });
 }
 
@@ -805,6 +838,12 @@ export async function updateVersion(req: AuthRequest, res: Response) {
   }
 
   await writeMirror(audioFiles, track._id!);
+  // Skip the browser's automatic BPM/key analysis right after upload — that
+  // isn't a deliberate edit and would double up with "track added".
+  const isFreshUpload = Date.now() - new Date(track.createdAt).getTime() < 120_000;
+  if (Object.keys(set).length > 0 && !isFreshUpload) {
+    void notifyForTrack(track, req.userId!, "collab_track_edited");
+  }
   await sendTrack(res, track._id!);
 }
 
@@ -830,6 +869,7 @@ export async function selectVersion(req: AuthRequest, res: Response) {
     { $set: { selectedVersionId: versionId, updatedAt: new Date() } }
   );
   await writeMirror(audioFiles, track._id!);
+  void notifyForTrack(track, req.userId!, "collab_version_selected");
 
   await sendTrack(res, track._id!);
 }
@@ -876,6 +916,7 @@ export async function deleteVersion(req: AuthRequest, res: Response) {
     }
   );
   await writeMirror(audioFiles, track._id!);
+  void notifyForTrack(track, req.userId!, "collab_version_removed");
 
   await sendTrack(res, track._id!);
 }
@@ -955,6 +996,8 @@ export async function confirmVersionProject(req: AuthRequest, res: Response) {
     }
   );
 
+  void notifyForTrack(ctx.track, req.userId!, "collab_version_added");
+
   await sendTrack(res, ctx.track._id!);
 }
 
@@ -970,7 +1013,87 @@ export async function downloadVersionProject(req: AuthRequest, res: Response) {
     ctx.version.projectKey,
     ctx.version.projectFilename ?? "projekt.zip"
   );
+  if (!ctx.track.owner.equals(req.userId!)) {
+    void logTrackEvent(ctx.track._id!, ctx.track.owner, req.userId, "download");
+  }
   res.json({ url });
+}
+
+/**
+ * Frontend calls this once a play has passed the 15-second threshold.
+ * optionalAuth — anonymous listens are logged with userId = null.
+ */
+export async function logListen(req: AuthRequest, res: Response) {
+  const id = param(req.params.id);
+  if (!id || !ObjectId.isValid(id)) {
+    return res.status(400).json({ error: "Ungültige ID" });
+  }
+  const db = getDB();
+  const track = await db
+    .collection<AudioFile>("audioFiles")
+    .findOne({ _id: new ObjectId(id) }, { projection: { owner: 1 } });
+  if (!track) return res.status(404).json({ error: "Track nicht gefunden" });
+
+  // Don't count the owner listening to their own track.
+  if (req.userId && track.owner.equals(req.userId)) {
+    return res.json({ ok: true, counted: false });
+  }
+
+  // Light dedup for logged-in users: one listen per 20s per track.
+  if (req.userId) {
+    const recent = await db.collection<TrackEvent>("trackEvents").findOne({
+      trackId: track._id,
+      userId: new ObjectId(req.userId),
+      type: "listen",
+      createdAt: { $gt: new Date(Date.now() - 20_000) },
+    });
+    if (recent) return res.json({ ok: true, counted: false });
+  }
+
+  await logTrackEvent(track._id!, track.owner, req.userId, "listen");
+  res.json({ ok: true, counted: true });
+}
+
+// Alle Detail-Infos + Zähler für das Info-Fenster
+export async function getAudioFileInfo(req: AuthRequest, res: Response) {
+  const track = await verifyTrackOwnership(req.params.id, req.userId!);
+  if (!track) return res.status(404).json({ error: "Track nicht gefunden" });
+
+  const version = findSelectedVersion(track);
+  const counts = await trackCounts(track._id!);
+  const playlist = await getDB()
+    .collection<Playlist>("playlists")
+    .findOne({ _id: track.playlistId }, { projection: { name: 1 } });
+
+  res.json({
+    _id: track._id!.toString(),
+    title: track.title,
+    artist: track.artist ?? null,
+    description: track.description ?? null,
+    kind: track.kind ?? "track",
+    playlistName: playlist?.name ?? null,
+    createdAt: track.createdAt,
+    updatedAt: track.updatedAt,
+    coverUrl: track.coverKey ? await getDownloadUrl(track.coverKey) : null,
+    versionCount: track.versions?.length ?? 0,
+    selectedVersion: version
+      ? {
+          label: version.label,
+          originalFilename: version.originalFilename ?? null,
+          fileSize: version.fileSize ?? null,
+          mimeType: version.mimeType ?? null,
+          duration: version.duration ?? null,
+          bpm: version.bpm ?? null,
+          musicalKey: version.musicalKey ?? null,
+          projectFilename: version.projectFilename ?? null,
+          projectSize: version.projectSize ?? null,
+          createdAt: version.createdAt,
+        }
+      : null,
+    shareEnabled: !!track.shareEnabled,
+    projectShareEnabled: !!track.projectShareEnabled,
+    stats: counts,
+  });
 }
 
 export async function deleteVersionProject(req: AuthRequest, res: Response) {
@@ -992,6 +1115,8 @@ export async function deleteVersionProject(req: AuthRequest, res: Response) {
       $set: { updatedAt: new Date() },
     }
   );
+
+  void notifyForTrack(ctx.track, req.userId!, "collab_version_removed");
 
   await sendTrack(res, ctx.track._id!);
 }

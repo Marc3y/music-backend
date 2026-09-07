@@ -12,6 +12,8 @@ import {
   getAudioFileCoverUploadUrl,
   deleteAudioFile,
   streamAudioFile,
+  logListen,
+  getAudioFileInfo,
   enableShare,
   disableShare,
   streamSharedAudioFile,
@@ -34,7 +36,8 @@ const router = Router();
 
 // Öffentliche Routen (kein Login) - MÜSSEN vor requireAuth stehen
 router.get("/public/stream/:shareToken", optionalAuth, streamSharedAudioFile);
-router.get("/public/project/:token", getSharedProject);
+router.get("/public/project/:token", optionalAuth, getSharedProject);
+router.post("/:id/listened", optionalAuth, asyncHandler(logListen));
 
 router.use(requireAuth);
 
@@ -60,6 +63,7 @@ router.get("/:id/versions/:vid/project/download", asyncHandler(downloadVersionPr
 router.delete("/:id/versions/:vid/project", asyncHandler(deleteVersionProject));
 
 // Einzelner Track
+router.get("/:id/info", asyncHandler(getAudioFileInfo));
 router.get("/:id", asyncHandler(getAudioFileById));
 router.patch("/:id", asyncHandler(updateAudioFile));
 router.post("/:id/cover-upload-url", asyncHandler(getAudioFileCoverUploadUrl));
