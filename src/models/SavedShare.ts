@@ -5,5 +5,6 @@ export interface SavedShare {
   userId: ObjectId;
   type: "audio" | "project" | "playlist" | "collab";
   token: string; // shareToken / projectShareToken / playlist shareToken / collabToken
+  order?: number; // Sortierung in der Mediathek (aufsteigend)
   createdAt: Date;
 }

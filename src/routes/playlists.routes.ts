@@ -4,6 +4,7 @@ import { asyncHandler } from "../middleware/errorHandler";
 import {
   createPlaylist,
   getPlaylists,
+  reorderPlaylists,
   getPlaylistById,
   updatePlaylist,
   deletePlaylist,
@@ -43,6 +44,7 @@ router.use(requireAuth); // alle weiteren Playlist-Routen brauchen Login
 
 router.post("/", asyncHandler(createPlaylist));
 router.get("/", asyncHandler(getPlaylists));
+router.post("/reorder", asyncHandler(reorderPlaylists));
 router.post("/join/:token", asyncHandler(joinPlaylist));
 router.get("/:id", asyncHandler(getPlaylistById));
 router.patch("/:id", asyncHandler(updatePlaylist));

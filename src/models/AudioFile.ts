@@ -32,6 +32,8 @@ export interface AudioFile {
   shareProject?: boolean;      // Projektdatei der Hauptversion mitteilen?
   projectShareEnabled?: boolean; // eigener Link nur für die Projektdatei
   projectShareToken?: string;
+  /** bcrypt-Hash; wenn gesetzt, braucht der geteilte Track-Link ein Passwort (music+). */
+  sharePasswordHash?: string;
   createdAt: Date;
   updatedAt: Date;
 

@@ -17,6 +17,7 @@ import {
   confirmAccountDeletion,
   addSavedShare,
   listSavedShares,
+  reorderSavedShares,
   removeSavedShare,
 } from "../controllers/account.controller";
 
@@ -31,6 +32,7 @@ router.get("/stats", asyncHandler(getAccountStats));
 router.get("/usage", asyncHandler(getUsage));
 router.get("/saved-shares", asyncHandler(listSavedShares));
 router.post("/saved-shares", asyncHandler(addSavedShare));
+router.post("/saved-shares/reorder", asyncHandler(reorderSavedShares));
 router.delete("/saved-shares/:id", asyncHandler(removeSavedShare));
 router.patch("/username", asyncHandler(updateUsername));
 router.post("/avatar-upload-url", asyncHandler(getAvatarUploadUrl));

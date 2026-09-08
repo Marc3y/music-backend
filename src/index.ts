@@ -122,6 +122,51 @@ async function startServer() {
       if (keyMigrated > 0) console.log(`🎼 ${keyMigrated} Track(s) Tonart-Notation migriert`);
     }
 
+    // Mediathek-Sortierung: bestehende Playlists / gespeicherte Shares mit `order` befüllen (idempotent)
+    {
+      const playlists = getDB().collection("playlists");
+      const ownersCursor = playlists.aggregate([
+        { $match: { order: { $exists: false } } },
+        { $group: { _id: "$owner" } },
+      ]);
+      let plMigrated = 0;
+      for await (const grp of ownersCursor) {
+        const rows = await playlists
+          .find({ owner: grp._id })
+          .sort({ order: 1, createdAt: -1 })
+          .project({ _id: 1 })
+          .toArray();
+        await playlists.bulkWrite(
+          rows.map((r, i) => ({
+            updateOne: { filter: { _id: r._id }, update: { $set: { order: i } } },
+          }))
+        );
+        plMigrated += rows.length;
+      }
+      if (plMigrated > 0) console.log(`↕️  ${plMigrated} Playlist(s) Sortierung initialisiert`);
+
+      const savedShares = getDB().collection("savedShares");
+      const usersCursor = savedShares.aggregate([
+        { $match: { order: { $exists: false } } },
+        { $group: { _id: "$userId" } },
+      ]);
+      let ssMigrated = 0;
+      for await (const grp of usersCursor) {
+        const rows = await savedShares
+          .find({ userId: grp._id })
+          .sort({ order: 1, createdAt: -1 })
+          .project({ _id: 1 })
+          .toArray();
+        await savedShares.bulkWrite(
+          rows.map((r, i) => ({
+            updateOne: { filter: { _id: r._id }, update: { $set: { order: i } } },
+          }))
+        );
+        ssMigrated += rows.length;
+      }
+      if (ssMigrated > 0) console.log(`↕️  ${ssMigrated} gespeicherte Share(s) Sortierung initialisiert`);
+    }
+
     // Indizes (best effort, einzeln – ein Konflikt darf die anderen nicht überspringen)
     const ensureIndex = async (
       coll: string,

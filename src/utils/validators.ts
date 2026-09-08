@@ -128,6 +128,11 @@ export const unlockShareSchema = z.object({
     password: z.string().min(1).max(200),
 });
 
+// null = Passwortschutz entfernen; String = neues Passwort setzen (music+)
+export const setTrackSharePasswordSchema = z.object({
+    password: z.string().min(1).max(200).nullable(),
+});
+
 export const updateCollaboratorsSchema = z.object({
     usernames: z.array(usernameEntry).max(50),
 });

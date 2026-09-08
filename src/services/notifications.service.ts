@@ -1,7 +1,11 @@
 import { Response } from "express";
 import { ObjectId } from "mongodb";
 import { getDB } from "../config/db";
-import { Notification, NotificationType } from "../models/Notification";
+import {
+  Notification,
+  NotificationType,
+  NotificationMeta,
+} from "../models/Notification";
 import { User } from "../models/User";
 import { Playlist } from "../models/Playlist";
 import { getDownloadUrl } from "./storage.service";
@@ -54,6 +58,7 @@ export async function serializeNotification(n: Notification) {
     playlistName: n.playlistName ?? null,
     trackId: n.trackId?.toString() ?? null,
     trackTitle: n.trackTitle ?? null,
+    meta: n.meta ?? null,
     createdAt: n.createdAt.toISOString(),
     read: !!n.readAt,
   };
@@ -69,6 +74,7 @@ interface CreateArgs {
   playlistName?: string;
   trackId?: ObjectId;
   trackTitle?: string;
+  meta?: NotificationMeta;
 }
 
 export async function createNotification(args: CreateArgs) {
@@ -91,6 +97,7 @@ export async function createNotification(args: CreateArgs) {
     playlistName: args.playlistName,
     trackId: args.trackId,
     trackTitle: args.trackTitle,
+    meta: args.meta,
     createdAt: new Date(),
     readAt: null,
   };
@@ -156,7 +163,11 @@ export async function notifyCollabActivity(
   playlist: Pick<Playlist, "_id" | "name" | "owner" | "collaborators">,
   actorId: string,
   type: NotificationType,
-  extra?: { trackId?: ObjectId; trackTitle?: string }
+  extra?: {
+    trackId?: ObjectId;
+    trackTitle?: string;
+    meta?: NotificationMeta;
+  }
 ) {
   if (!ObjectId.isValid(actorId)) return;
   const actor = new ObjectId(actorId);
@@ -180,6 +191,28 @@ export async function notifyCollabActivity(
       playlistName: playlist.name,
       trackId: extra?.trackId,
       trackTitle: extra?.trackTitle,
+      meta: extra?.meta,
     });
   }
+}
+
+/** Jemand hat deinen geteilten Track / deine Playlist zur Mediathek hinzugefügt. */
+export async function notifyShareSaved(
+  ownerId: ObjectId,
+  actorId: string,
+  savedKind: "track" | "playlist",
+  name: string,
+  ids: { playlistId?: ObjectId; trackId?: ObjectId }
+) {
+  if (!ObjectId.isValid(actorId)) return;
+  await createNotification({
+    recipientId: ownerId,
+    actorId: new ObjectId(actorId),
+    type: "share_saved",
+    playlistId: ids.playlistId,
+    trackId: ids.trackId,
+    trackTitle: savedKind === "track" ? name : undefined,
+    playlistName: savedKind === "playlist" ? name : undefined,
+    meta: { savedKind },
+  });
 }

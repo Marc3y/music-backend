@@ -35,6 +35,7 @@ import {
   deleteObject,
 } from "../services/storage.service";
 import { ownerStats } from "../services/trackStats.service";
+import { notifyShareSaved } from "../services/notifications.service";
 
 const CODE_TTL_MS = 15 * 60 * 1000;
 
@@ -504,6 +505,8 @@ export async function addSavedShare(req: AuthRequest, res: Response) {
   const { type, token } = parsed.data;
   const userId = new ObjectId(req.userId);
 
+  let notify: (() => void) | null = null;
+
   if (type === "playlist") {
     const playlists = getDB().collection<Playlist>("playlists");
     const pl = await playlists.findOne({ shareToken: token, shareEnabled: true });
@@ -517,6 +520,10 @@ export async function addSavedShare(req: AuthRequest, res: Response) {
         return res.status(403).json({ error: "Kein Zugriff auf diese Playlist" });
       }
     }
+    notify = () =>
+      notifyShareSaved(pl.owner, req.userId!, "playlist", pl.name, {
+        playlistId: pl._id,
+      });
   } else {
     const track = await resolveSharedTrack(type, token);
     if (!track) {
@@ -525,15 +532,31 @@ export async function addSavedShare(req: AuthRequest, res: Response) {
     if (track.owner.equals(userId)) {
       return res.status(400).json({ error: "Das ist dein eigener Eintrag" });
     }
+    notify = () =>
+      notifyShareSaved(track.owner, req.userId!, "track", track.title, {
+        trackId: track._id,
+        playlistId: track.playlistId,
+      });
   }
 
-  await getDB()
+  const upsert = await getDB()
     .collection<SavedShare>("savedShares")
     .updateOne(
       { userId, type, token },
-      { $setOnInsert: { userId, type, token, createdAt: new Date() } },
+      {
+        $setOnInsert: {
+          userId,
+          type,
+          token,
+          order: -Date.now(),
+          createdAt: new Date(),
+        },
+      },
       { upsert: true }
     );
+
+  // Nur beim ersten Speichern benachrichtigen.
+  if (upsert.upsertedCount > 0) notify?.();
 
   res.json({ message: "Zur Mediathek hinzugefügt" });
 }
@@ -573,7 +596,10 @@ async function resolveSavedPlaylist(
 export async function listSavedShares(req: AuthRequest, res: Response) {
   const userId = new ObjectId(req.userId);
   const saved = getDB().collection<SavedShare>("savedShares");
-  const entries = await saved.find({ userId }).sort({ createdAt: -1 }).toArray();
+  const entries = await saved
+    .find({ userId })
+    .sort({ order: 1, createdAt: -1 })
+    .toArray();
 
   const result: unknown[] = [];
   const staleIds: ObjectId[] = [];
@@ -613,6 +639,36 @@ export async function listSavedShares(req: AuthRequest, res: Response) {
   if (staleIds.length) await saved.deleteMany({ _id: { $in: staleIds } });
 
   res.json(result);
+}
+
+// POST /account/saved-shares/reorder  { orderedIds: string[] }
+export async function reorderSavedShares(req: AuthRequest, res: Response) {
+  const { orderedIds } = req.body as { orderedIds?: unknown };
+  if (
+    !Array.isArray(orderedIds) ||
+    !orderedIds.every((id) => typeof id === "string" && ObjectId.isValid(id))
+  ) {
+    return res.status(400).json({ error: "orderedIds erforderlich" });
+  }
+
+  const userId = new ObjectId(req.userId);
+  const saved = getDB().collection<SavedShare>("savedShares");
+  const ids = (orderedIds as string[]).map((id) => new ObjectId(id));
+
+  const owned = await saved
+    .find({ _id: { $in: ids }, userId }, { projection: { _id: 1 } })
+    .toArray();
+  if (owned.length !== ids.length) {
+    return res.status(400).json({ error: "Ungültige Liste" });
+  }
+
+  await saved.bulkWrite(
+    ids.map((_id, i) => ({
+      updateOne: { filter: { _id, userId }, update: { $set: { order: i } } },
+    }))
+  );
+
+  res.json({ message: "Reihenfolge gespeichert" });
 }
 
 export async function removeSavedShare(req: AuthRequest, res: Response) {

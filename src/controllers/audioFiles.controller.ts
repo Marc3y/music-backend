@@ -2,6 +2,7 @@ import { processAudioMetadata } from "../services/metadata.service";
 import { Response } from "express";
 import { ObjectId } from "mongodb";
 import { randomBytes } from "crypto";
+import bcrypt from "bcrypt";
 import { getDB } from "../config/db";
 import { AudioFile } from "../models/AudioFile";
 import { Playlist } from "../models/Playlist";
@@ -16,6 +17,8 @@ import {
   updateVersionSchema,
   initVersionProjectSchema,
   confirmVersionProjectSchema,
+  unlockShareSchema,
+  setTrackSharePasswordSchema,
 } from "../utils/validators";
 import { isAllowedAudioType, isAllowedProjectFile } from "../utils/audioValidation";
 import { normalizeKey } from "../utils/musicalKey";
@@ -42,6 +45,18 @@ import {
 } from "../services/notifications.service";
 import { logTrackEvent, trackCounts } from "../services/trackStats.service";
 import { TrackEvent } from "../models/TrackEvent";
+import { hasPlus, type Tier } from "../config/limits";
+import {
+  generateShareUnlock,
+  verifyShareUnlock,
+} from "../utils/tokens";
+
+async function requesterHasPlus(userId: string): Promise<boolean> {
+  const u = await getDB()
+    .collection<User>("users")
+    .findOne({ _id: new ObjectId(userId) }, { projection: { tier: 1 } });
+  return hasPlus(u?.tier as Tier | undefined);
+}
 
 // Playlist zurückgeben, wenn der User sie bearbeiten darf (Owner oder Mitglied)
 async function verifyPlaylistOwnership(playlistId: string, userId: string) {
@@ -58,7 +73,8 @@ async function notifyForTrack(
     | "collab_version_added"
     | "collab_version_removed"
     | "collab_version_selected"
-    | "collab_reordered"
+    | "collab_reordered",
+  meta?: { field?: string; from?: string | null; to?: string | null }
 ) {
   const playlist = await getDB()
     .collection<Playlist>("playlists")
@@ -67,6 +83,7 @@ async function notifyForTrack(
   await notifyCollabActivity(playlist, actorId, type, {
     trackId: track._id,
     trackTitle: track.title,
+    meta,
   });
 }
 
@@ -106,12 +123,18 @@ async function verifyTrackOwnership(trackIdRaw: unknown, userId: string) {
 }
 
 // Track mit frischer coverUrl zurückgeben (nach jeder Version-/Projekt-Änderung)
+/** Track fürs Frontend aufbereiten: Passwort-Hash raus, `sharePasswordSet` rein. */
+function clientTrack<T extends AudioFile>(track: T) {
+  const { sharePasswordHash, ...rest } = track;
+  return { ...rest, sharePasswordSet: !!sharePasswordHash };
+}
+
 async function sendTrack(res: Response, trackId: ObjectId) {
   const db = getDB();
   const track = await db.collection<AudioFile>("audioFiles").findOne({ _id: trackId });
   if (!track) return res.status(404).json({ error: "Track nicht gefunden" });
   const coverUrl = track.coverKey ? await getDownloadUrl(track.coverKey) : null;
-  res.json({ ...track, coverUrl });
+  res.json({ ...clientTrack(track), coverUrl });
 }
 
 // Storage-Limit-Check für einen weiteren Upload von `additionalBytes`
@@ -321,7 +344,7 @@ export async function getAudioFilesByPlaylist(req: AuthRequest, res: Response) {
 
   const withCoverUrls = await Promise.all(
    tracks.map(async (t) => ({
-    ...t,
+    ...clientTrack(t),
     coverUrl: t.coverKey ? await getDownloadUrl(t.coverKey) : null,
    }))
 );
@@ -347,7 +370,7 @@ export async function getAudioFileById(req: AuthRequest, res: Response) {
   }
 
   const coverUrl = track.coverKey ? await getDownloadUrl(track.coverKey) : null;
-  res.json({ ...track, coverUrl });
+  res.json({ ...clientTrack(track), coverUrl });
 }
 
 // Metadaten bearbeiten (Titel, Interpret, Beschreibung)
@@ -380,10 +403,28 @@ export async function updateAudioFile(req: AuthRequest, res: Response) {
     return res.status(404).json({ error: "Track nicht gefunden" });
   }
 
-  void notifyForTrack(result, req.userId!, "collab_track_edited");
+  // Eine Detail-Benachrichtigung pro tatsächlich geändertem Feld.
+  const d = parseResult.data;
+  const changed: Array<[string, string | undefined, string | undefined]> = [];
+  if (d.title !== undefined && d.title !== existing.title)
+    changed.push(["title", existing.title, d.title]);
+  if (d.artist !== undefined && (d.artist || "") !== (existing.artist || ""))
+    changed.push(["artist", existing.artist, d.artist]);
+  if (
+    d.description !== undefined &&
+    (d.description || "") !== (existing.description || "")
+  )
+    changed.push(["description", existing.description, d.description]);
+  for (const [field, from, to] of changed) {
+    void notifyForTrack(result, req.userId!, "collab_track_edited", {
+      field,
+      from: from ?? null,
+      to: to ?? null,
+    });
+  }
 
   const coverUrl = result.coverKey ? await getDownloadUrl(result.coverKey) : null;
-  res.json({ ...result, coverUrl });
+  res.json({ ...clientTrack(result), coverUrl });
 }
 
 // Eigenes Cover für einen Track hochladen (gleicher Ablauf wie bei Playlist-Cover)
@@ -640,6 +681,22 @@ export async function streamSharedAudioFile(req: AuthRequest, res: Response) {
   if (!streamKey) {
     return res.status(404).json({ error: "Kein Audio verfügbar" });
   }
+  // Passwortschutz (music+): Owner ist ausgenommen.
+  if (track.sharePasswordHash && !(req.userId && track.owner.equals(req.userId))) {
+    const key =
+      (typeof req.query.k === "string" && req.query.k) ||
+      (typeof req.headers["x-share-key"] === "string" &&
+        (req.headers["x-share-key"] as string)) ||
+      "";
+    if (!key || !verifyShareUnlock(key, track.shareToken!)) {
+      return res.status(401).json({
+        error: "Passwort erforderlich",
+        needsPassword: true,
+        title: track.title,
+      });
+    }
+  }
+
   void notifyListen(track, req.userId);
   const streamUrl = await getDownloadUrl(streamKey);
 
@@ -661,6 +718,61 @@ export async function streamSharedAudioFile(req: AuthRequest, res: Response) {
     projectUrl,
     projectFilename,
   });
+}
+
+// PATCH /audio-files/:id/share-password  { password: string | null }  (Owner, music+)
+export async function setTrackSharePassword(req: AuthRequest, res: Response) {
+  const parsed = setTrackSharePasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0].message });
+  }
+
+  const track = await verifyTrackOwnership(req.params.id, req.userId!);
+  if (!track) return res.status(404).json({ error: "Track nicht gefunden" });
+
+  if (!(await requesterHasPlus(req.userId!))) {
+    return res
+      .status(403)
+      .json({ error: "Passwortschutz erfordert music+", upgradeRequired: true });
+  }
+
+  const audioFiles = getDB().collection<AudioFile>("audioFiles");
+  if (parsed.data.password === null) {
+    await audioFiles.updateOne(
+      { _id: track._id },
+      { $unset: { sharePasswordHash: "" }, $set: { updatedAt: new Date() } }
+    );
+  } else {
+    const hash = await bcrypt.hash(parsed.data.password, 10);
+    await audioFiles.updateOne(
+      { _id: track._id },
+      { $set: { sharePasswordHash: hash, updatedAt: new Date() } }
+    );
+  }
+
+  const updated = await audioFiles.findOne({ _id: track._id });
+  res.json({ sharePasswordSet: !!updated?.sharePasswordHash });
+}
+
+// POST /audio-files/public/unlock/:shareToken  { password }  (kein Login)
+export async function unlockTrackShare(req: AuthRequest, res: Response) {
+  const shareToken = param(req.params.shareToken);
+  if (!shareToken) return res.status(400).json({ error: "Ungültiger Link" });
+
+  const parsed = unlockShareSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Passwort erforderlich" });
+
+  const track = await getDB()
+    .collection<AudioFile>("audioFiles")
+    .findOne({ shareToken, shareEnabled: true });
+  if (!track || !track.sharePasswordHash) {
+    return res.status(404).json({ error: "Track nicht gefunden" });
+  }
+
+  const ok = await bcrypt.compare(parsed.data.password, track.sharePasswordHash);
+  if (!ok) return res.status(401).json({ error: "Falsches Passwort" });
+
+  res.json({ unlockKey: generateShareUnlock(shareToken) });
 }
 
 export async function reorderAudioFiles(req: AuthRequest, res: Response) {
@@ -841,8 +953,32 @@ export async function updateVersion(req: AuthRequest, res: Response) {
   // Skip the browser's automatic BPM/key analysis right after upload — that
   // isn't a deliberate edit and would double up with "track added".
   const isFreshUpload = Date.now() - new Date(track.createdAt).getTime() < 120_000;
-  if (Object.keys(set).length > 0 && !isFreshUpload) {
-    void notifyForTrack(track, req.userId!, "collab_track_edited");
+  if (!isFreshUpload) {
+    const changes: Array<[string, string | undefined, string | undefined]> = [];
+    if (parsed.data.bpm !== undefined && parsed.data.bpm !== (version.bpm ?? null))
+      changes.push([
+        "bpm",
+        version.bpm != null ? String(version.bpm) : undefined,
+        parsed.data.bpm != null ? String(parsed.data.bpm) : undefined,
+      ]);
+    if (
+      parsed.data.musicalKey !== undefined &&
+      (normalizeKey(parsed.data.musicalKey) || null) !== (version.musicalKey ?? null)
+    )
+      changes.push([
+        "key",
+        version.musicalKey ?? undefined,
+        normalizeKey(parsed.data.musicalKey) || undefined,
+      ]);
+    if (parsed.data.label !== undefined && parsed.data.label !== version.label)
+      changes.push(["label", version.label, parsed.data.label]);
+    for (const [field, from, to] of changes) {
+      void notifyForTrack(track, req.userId!, "collab_track_edited", {
+        field,
+        from: from ?? null,
+        to: to ?? null,
+      });
+    }
   }
   await sendTrack(res, track._id!);
 }

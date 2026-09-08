@@ -10,6 +10,7 @@ export interface Playlist {
   name: string;
   coverKey?: string;
   owner: ObjectId;
+  order?: number; // Sortierung in der Mediathek (aufsteigend)
   createdAt: Date;
   updatedAt: Date;
 

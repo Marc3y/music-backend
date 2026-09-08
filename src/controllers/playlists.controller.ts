@@ -63,6 +63,7 @@ export async function createPlaylist(req: AuthRequest, res: Response) {
   const newPlaylist: Playlist = {
     name: parseResult.data.name,
     owner: new ObjectId(req.userId),
+    order: -Date.now(), // neue Playlists erscheinen oben
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -77,7 +78,7 @@ export async function getPlaylists(req: AuthRequest, res: Response) {
 
   const userPlaylists = await playlists
     .find({ owner: new ObjectId(req.userId) })
-    .sort({ createdAt: -1 })
+    .sort({ order: 1, createdAt: -1 })
     .toArray();
 
   // Für jede Playlist eine kurzlebige Cover-URL generieren, falls vorhanden
@@ -90,6 +91,36 @@ export async function getPlaylists(req: AuthRequest, res: Response) {
   );
 
   res.json(withCoverUrls);
+}
+
+// POST /playlists/reorder  { orderedIds: string[] }  – eigene Playlists sortieren
+export async function reorderPlaylists(req: AuthRequest, res: Response) {
+  const { orderedIds } = req.body as { orderedIds?: unknown };
+  if (
+    !Array.isArray(orderedIds) ||
+    !orderedIds.every((id) => typeof id === "string" && ObjectId.isValid(id))
+  ) {
+    return res.status(400).json({ error: "orderedIds erforderlich" });
+  }
+
+  const playlists = getDB().collection<Playlist>("playlists");
+  const owner = new ObjectId(req.userId);
+  const ids = (orderedIds as string[]).map((id) => new ObjectId(id));
+
+  const owned = await playlists
+    .find({ _id: { $in: ids }, owner }, { projection: { _id: 1 } })
+    .toArray();
+  if (owned.length !== ids.length) {
+    return res.status(400).json({ error: "Ungültige Playlist-Liste" });
+  }
+
+  await playlists.bulkWrite(
+    ids.map((_id, i) => ({
+      updateOne: { filter: { _id, owner }, update: { $set: { order: i } } },
+    }))
+  );
+
+  res.json({ message: "Reihenfolge gespeichert" });
 }
 
 export async function getPlaylistById(req: AuthRequest, res: Response) {
@@ -166,7 +197,9 @@ export async function updatePlaylist(req: AuthRequest, res: Response) {
     parseResult.data.name !== undefined &&
     parseResult.data.name !== editable.name
   ) {
-    void notifyCollabActivity(editable, req.userId!, "collab_renamed");
+    void notifyCollabActivity(editable, req.userId!, "collab_renamed", {
+      meta: { field: "name", from: editable.name, to: parseResult.data.name },
+    });
   }
 
   res.json(result);
