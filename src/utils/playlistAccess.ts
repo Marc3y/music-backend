@@ -16,7 +16,6 @@ export function canEdit(pl: Playlist, userId?: string): boolean {
   return isOwner(pl, userId) || isCollaborator(pl, userId);
 }
 
-// Playlist zurückgeben, wenn der User sie bearbeiten darf (Owner oder beigetretenes Mitglied)
 export async function getEditablePlaylist(
   playlistId: string,
   userId: string
@@ -38,7 +37,6 @@ export async function getUsernameLower(userId: string): Promise<string | null> {
   return user ? user.username.toLowerCase() : null;
 }
 
-// Kann der (optional eingeloggte) Betrachter die geteilte Playlist ansehen?
 export async function canViewShared(
   pl: Playlist,
   userId?: string

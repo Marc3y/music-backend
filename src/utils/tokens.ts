@@ -23,7 +23,6 @@ export function generateSixDigitCode(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-/** Kurzlebiger Nachweis, dass das Passwort eines geteilten Links eingegeben wurde. */
 export function generateShareUnlock(shareToken: string): string {
   return jwt.sign({ st: shareToken }, ACCESS_SECRET, { expiresIn: "12h" });
 }

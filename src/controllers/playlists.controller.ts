@@ -42,14 +42,12 @@ async function ownerHasPlus(ownerId: ObjectId): Promise<boolean> {
   return hasPlus(u?.tier as Tier | undefined);
 }
 
-/** username + kurzlebige Avatar-URL für die Anzeige auf der Playlist-Seite */
 async function serializeUserBrief(u: Pick<User, "username" | "avatarKey">) {
   return {
     username: u.username,
     avatarUrl: u.avatarKey ? await getDownloadUrl(u.avatarKey) : null,
   };
 }
-
 
 export async function createPlaylist(req: AuthRequest, res: Response) {
   const parseResult = createPlaylistSchema.safeParse(req.body);
@@ -63,7 +61,7 @@ export async function createPlaylist(req: AuthRequest, res: Response) {
   const newPlaylist: Playlist = {
     name: parseResult.data.name,
     owner: new ObjectId(req.userId),
-    order: -Date.now(), // neue Playlists erscheinen oben
+    order: -Date.now(),
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -81,7 +79,6 @@ export async function getPlaylists(req: AuthRequest, res: Response) {
     .sort({ order: 1, createdAt: -1 })
     .toArray();
 
-  // Für jede Playlist eine kurzlebige Cover-URL generieren, falls vorhanden
   const withCoverUrls = await Promise.all(
     userPlaylists.map(async ({ sharePasswordHash, ...playlist }) => ({
       ...playlist,
@@ -93,7 +90,6 @@ export async function getPlaylists(req: AuthRequest, res: Response) {
   res.json(withCoverUrls);
 }
 
-// POST /playlists/reorder  { orderedIds: string[] }  – eigene Playlists sortieren
 export async function reorderPlaylists(req: AuthRequest, res: Response) {
   const { orderedIds } = req.body as { orderedIds?: unknown };
   if (
@@ -138,7 +134,6 @@ export async function getPlaylistById(req: AuthRequest, res: Response) {
   const coverUrl = playlist.coverKey ? await getDownloadUrl(playlist.coverKey) : null;
   const role = isOwner(playlist, req.userId) ? "owner" : "collaborator";
 
-  // Owner + aktive (beigetretene) Mitglieder für die Anzeige auflösen
   const users = getDB().collection<User>("users");
   const joinedIds = (playlist.collaborators ?? [])
     .map((c) => c.userId)
@@ -216,7 +211,6 @@ export async function deletePlaylist(req: AuthRequest, res: Response) {
     const playlists = db.collection<Playlist>("playlists");
     const audioFiles = db.collection<AudioFile>("audioFiles");
 
-    // Löschen nur durch den Owner
     const playlist = await playlists.findOne({
       _id: new ObjectId(id),
       owner: new ObjectId(req.userId),
@@ -225,26 +219,25 @@ export async function deletePlaylist(req: AuthRequest, res: Response) {
     if (!playlist) {
       return res.status(404).json({ error: "Playlist nicht gefunden" });
     }
-  
-    // Alle Tracks dieser Playlist finden und deren MinIO-Objekte löschen
+
     const tracksInPlaylist = await audioFiles.find({ playlistId: playlist._id }).toArray();
 
     for (const track of tracksInPlaylist) {
       for (const v of track.versions ?? []) {
         if (v.key) {
-          try { await deleteObject(v.key); } catch { /* ignore */ }
+          try { await deleteObject(v.key); } catch {  }
         }
         if (v.projectKey) {
-          try { await deleteObject(v.projectKey); } catch { /* ignore */ }
+          try { await deleteObject(v.projectKey); } catch {  }
         }
       }
       if (track.coverKey) {
-        try { await deleteObject(track.coverKey); } catch { /* ignore */ }
+        try { await deleteObject(track.coverKey); } catch {  }
       }
     }
-  
+
     await audioFiles.deleteMany({ playlistId: playlist._id });
-  
+
     if (playlist.coverKey) {
       await deleteObject(playlist.coverKey);
     }
@@ -259,7 +252,6 @@ export async function deletePlaylist(req: AuthRequest, res: Response) {
     res.json({ message: "Playlist und alle enthaltenen Tracks gelöscht" });
   }
 
-// Presigned URL für Cover-Upload anfordern
 export async function getPlaylistCoverUploadUrl(req: AuthRequest, res: Response) {
   const parseResult = uploadUrlRequestSchema.safeParse(req.body);
   if (!parseResult.success) {
@@ -285,7 +277,6 @@ export async function getPlaylistCoverUploadUrl(req: AuthRequest, res: Response)
   const key = generateObjectKey(`covers/${req.userId}`, filename);
   const uploadUrl = await getUploadUrl(key, contentType);
 
-  // Key schon jetzt speichern, damit wir wissen wohin es hochgeladen wird
   await getDB()
     .collection<Playlist>("playlists")
     .updateOne({ _id: playlist._id }, { $set: { coverKey: key, updatedAt: new Date() } });
@@ -294,8 +285,6 @@ export async function getPlaylistCoverUploadUrl(req: AuthRequest, res: Response)
 
   res.json({ uploadUrl, key });
 }
-
-/* ==================== Playlist teilen / Collaboration ==================== */
 
 async function ownedPlaylist(id: unknown, userId: string) {
   if (typeof id !== "string" || !ObjectId.isValid(id)) return null;
@@ -308,7 +297,6 @@ function collabView(pl: Playlist) {
   return (pl.collaborators ?? []).map((c) => ({ username: c.username, joined: !!c.userId }));
 }
 
-// PATCH /playlists/:id/share  (owner-only)
 export async function updatePlaylistShare(req: AuthRequest, res: Response) {
   const parsed = updatePlaylistShareSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -355,11 +343,10 @@ export async function updatePlaylistShare(req: AuthRequest, res: Response) {
 
   const token = updated?.shareToken;
   if (token) {
-    // Teilen deaktiviert -> alle gespeicherten Einträge weg
     if (d.shareEnabled === false) {
       await savedShares.deleteMany({ type: "playlist", token });
     } else if (updated?.shareRestricted) {
-      // Nicht mehr erlaubte Nutzer entfernen
+
       const allowed = updated.allowedUsernames ?? [];
       const kept = await savedShares.find({ type: "playlist", token }).toArray();
       for (const s of kept) {
@@ -383,7 +370,6 @@ export async function updatePlaylistShare(req: AuthRequest, res: Response) {
   });
 }
 
-// PATCH /playlists/:id/collaborators  (owner-only)
 export async function updateCollaborators(req: AuthRequest, res: Response) {
   const parsed = updateCollaboratorsSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -398,7 +384,6 @@ export async function updateCollaborators(req: AuthRequest, res: Response) {
   );
   const existing = playlist.collaborators ?? [];
 
-  // Neue Mitglieder hinzuzufügen erfordert music+ (Entfernen bleibt immer erlaubt).
   const isAdding = wanted.some((u) => !existing.some((c) => c.username === u));
   if (isAdding && !(await ownerHasPlus(playlist.owner))) {
     return res.status(403).json({
@@ -422,7 +407,6 @@ export async function updateCollaborators(req: AuthRequest, res: Response) {
     { $set: { collaborators: next, collabToken, updatedAt: new Date() } }
   );
 
-  // Entfernte Mitglieder aus deren Mediathek werfen
   const removedIds = removed.map((c) => c.userId).filter(Boolean) as ObjectId[];
   if (removedIds.length && playlist.collabToken) {
     await getDB()
@@ -433,7 +417,6 @@ export async function updateCollaborators(req: AuthRequest, res: Response) {
   res.json({ collabToken: collabToken ?? null, collaborators: collabView({ ...playlist, collaborators: next }) });
 }
 
-// POST /playlists/join/:token  (requireAuth)
 export async function joinPlaylist(req: AuthRequest, res: Response) {
   const token = typeof req.params.token === "string" ? req.params.token : null;
   if (!token) return res.status(400).json({ error: "Ungültiger Link" });
@@ -475,8 +458,6 @@ export async function joinPlaylist(req: AuthRequest, res: Response) {
   res.json({ playlistId: playlist._id!.toString(), name: playlist.name });
 }
 
-/* ==================== Öffentliche Playlist-Ansicht ==================== */
-
 async function loadSharedPlaylist(
   req: AuthRequest,
   res: Response
@@ -505,7 +486,6 @@ async function loadSharedPlaylist(
     return null;
   }
 
-  // Passwortschutz (music+): Owner/Collaborator sind ausgenommen.
   if (
     playlist.sharePasswordHash &&
     !isOwner(playlist, req.userId) &&
@@ -529,7 +509,6 @@ async function loadSharedPlaylist(
   return { playlist, canDownload: !!playlist.shareAllowDownload };
 }
 
-// POST /playlists/public/:token/unlock  { password }
 export async function unlockSharedPlaylist(req: AuthRequest, res: Response) {
   const token = typeof req.params.token === "string" ? req.params.token : null;
   if (!token) return res.status(400).json({ error: "Ungültiger Link" });
@@ -612,7 +591,6 @@ export async function getSharedPlaylistStream(req: AuthRequest, res: Response) {
   res.json({ streamUrl: await getDownloadUrl(key) });
 }
 
-// POST /playlists/public/:token/tracks/:trackId/listened  (15s-Schwelle vom Client)
 export async function logSharedPlaylistListen(req: AuthRequest, res: Response) {
   const ctx = await loadSharedTrack(req, res);
   if (!ctx) return;

@@ -46,8 +46,6 @@ export function findSelectedVersion(track: AudioFile): TrackVersion | undefined 
   );
 }
 
-// Update-Doc, damit die Top-Level-"Mirror"-Felder die Hauptversion widerspiegeln.
-// Fehlende Audio-Felder (reine Projekt-Einträge) werden per $unset entfernt.
 export function mirrorUpdate(track: AudioFile): {
   $set: Partial<AudioFile>;
   $unset?: Record<string, "">;
@@ -70,7 +68,6 @@ export function mirrorUpdate(track: AudioFile): {
   return Object.keys($unset).length ? { $set, $unset } : { $set };
 }
 
-// Track neu laden und die Mirror-Felder aus der Hauptversion schreiben
 export async function writeMirror(
   audioFiles: Collection<AudioFile>,
   trackId: ObjectId

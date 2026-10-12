@@ -8,7 +8,6 @@ function events() {
   return getDB().collection<TrackEvent>("trackEvents");
 }
 
-/** Record one play (already past the 15s threshold) or download. */
 export async function logTrackEvent(
   trackId: ObjectId,
   ownerId: ObjectId,
@@ -24,7 +23,6 @@ export async function logTrackEvent(
   });
 }
 
-/** Per-track counters, used by the info dialog. */
 export async function trackCounts(trackId: ObjectId) {
   const rows = await events()
     .aggregate<{ _id: TrackEventType; count: number; users: number }>([
@@ -48,7 +46,6 @@ export async function trackCounts(trackId: ObjectId) {
   };
 }
 
-/** Full stats bundle for the account stats page. */
 export async function ownerStats(ownerId: ObjectId) {
   const db = getDB();
   const audioFiles = db.collection<AudioFile>("audioFiles");

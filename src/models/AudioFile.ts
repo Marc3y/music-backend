@@ -2,15 +2,15 @@ import { ObjectId } from "mongodb";
 
 export interface TrackVersion {
   _id: ObjectId;
-  label: string;               // Standard: originalFilename
-  key?: string;                // MinIO Object Key der Audiodatei (fehlt bei reinen Projekt-Einträgen)
+  label: string;
+  key?: string;
   originalFilename?: string;
   fileSize?: number;
   mimeType?: string;
-  duration?: number;           // Sekunden, nach Verarbeitung
+  duration?: number;
   bpm?: number | null;
   musicalKey?: string | null;
-  projectKey?: string;         // optionale Projektdatei (.zip/.rar)
+  projectKey?: string;
   projectFilename?: string;
   projectSize?: number;
   status: "processing" | "ready" | "failed";
@@ -21,26 +21,25 @@ export interface AudioFile {
   _id?: ObjectId;
   playlistId: ObjectId;
   owner: ObjectId;
-  kind?: "track" | "project";  // "project" = reiner Projekt-Eintrag ohne Audio (fehlt = "track")
-  coverKey?: string;           // optionales eigenes Cover
+  kind?: "track" | "project";
+  coverKey?: string;
   title: string;
   artist?: string;
   description?: string;
   order?: number;
   shareEnabled: boolean;
   shareToken?: string;
-  shareProject?: boolean;      // Projektdatei der Hauptversion mitteilen?
-  projectShareEnabled?: boolean; // eigener Link nur für die Projektdatei
+  shareProject?: boolean;
+  projectShareEnabled?: boolean;
   projectShareToken?: string;
-  /** bcrypt-Hash; wenn gesetzt, braucht der geteilte Track-Link ein Passwort (music+). */
+
   sharePasswordHash?: string;
   createdAt: Date;
   updatedAt: Date;
 
   versions: TrackVersion[];
-  selectedVersionId: ObjectId; // "Hauptversion"
+  selectedVersionId: ObjectId;
 
-  // --- Mirror der Hauptversion (damit Listen/Player/Streaming unverändert laufen) ---
   key?: string;
   originalFilename?: string;
   fileSize?: number;

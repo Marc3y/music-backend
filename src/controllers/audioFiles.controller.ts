@@ -58,12 +58,10 @@ async function requesterHasPlus(userId: string): Promise<boolean> {
   return hasPlus(u?.tier as Tier | undefined);
 }
 
-// Playlist zurückgeben, wenn der User sie bearbeiten darf (Owner oder Mitglied)
 async function verifyPlaylistOwnership(playlistId: string, userId: string) {
   return getEditablePlaylist(playlistId, userId);
 }
 
-// Alle Collaborator einer Playlist über die Aktion eines Users informieren.
 async function notifyForTrack(
   track: Pick<AudioFile, "playlistId" | "_id" | "title">,
   actorId: string,
@@ -96,7 +94,6 @@ async function safeDelete(key?: string) {
   }
 }
 
-// Wenn ein Track nicht mehr geteilt wird, verschwindet er auch aus fremden Mediatheken
 async function dropSavedShares(...tokens: (string | undefined)[]) {
   const valid = tokens.filter((t): t is string => !!t);
   if (!valid.length) return;
@@ -105,12 +102,10 @@ async function dropSavedShares(...tokens: (string | undefined)[]) {
     .deleteMany({ token: { $in: valid } });
 }
 
-// Express 5 typisiert Route-Params als string | string[]
 function param(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-// Track zurückgeben, wenn der User die zugehörige Playlist bearbeiten darf
 async function verifyTrackOwnership(trackIdRaw: unknown, userId: string) {
   const trackId = param(trackIdRaw);
   if (!trackId || !ObjectId.isValid(trackId)) return null;
@@ -122,8 +117,6 @@ async function verifyTrackOwnership(trackIdRaw: unknown, userId: string) {
   return playlist ? track : null;
 }
 
-// Track mit frischer coverUrl zurückgeben (nach jeder Version-/Projekt-Änderung)
-/** Track fürs Frontend aufbereiten: Passwort-Hash raus, `sharePasswordSet` rein. */
 function clientTrack<T extends AudioFile>(track: T) {
   const { sharePasswordHash, ...rest } = track;
   return { ...rest, sharePasswordSet: !!sharePasswordHash };
@@ -137,7 +130,6 @@ async function sendTrack(res: Response, trackId: ObjectId) {
   res.json({ ...clientTrack(track), coverUrl });
 }
 
-// Storage-Limit-Check für einen weiteren Upload von `additionalBytes`
 async function assertWithinLimit(userId: ObjectId, additionalBytes: number) {
   const db = getDB();
   const user = await db.collection<User>("users").findOne({ _id: userId });
@@ -153,7 +145,6 @@ async function assertWithinLimit(userId: ObjectId, additionalBytes: number) {
   return { ok: true as const };
 }
 
-// 1. Upload vorbereiten: presigned URL anfordern
 export async function initAudioUpload(req: AuthRequest, res: Response) {
   const parseResult = initAudioUploadSchema.safeParse(req.body);
   if (!parseResult.success) {
@@ -176,7 +167,6 @@ export async function initAudioUpload(req: AuthRequest, res: Response) {
     return res.status(404).json({ error: "Playlist nicht gefunden" });
   }
 
-  // Speicherlimit prüfen
   const limit = await assertWithinLimit(new ObjectId(req.userId), fileSize);
   if (!limit.ok) return res.status(limit.status).json({ error: limit.error });
 
@@ -186,7 +176,6 @@ export async function initAudioUpload(req: AuthRequest, res: Response) {
   res.json({ uploadUrl, key, fileSize, mimeType: contentType });
 }
 
-// 2. Upload bestätigen: DB-Eintrag anlegen
 export async function confirmAudioUpload(req: AuthRequest, res: Response) {
   const parseResult = confirmAudioUploadSchema.safeParse(req.body);
   if (!parseResult.success) {
@@ -207,10 +196,8 @@ export async function confirmAudioUpload(req: AuthRequest, res: Response) {
   const db = getDB();
   const audioFiles = db.collection<AudioFile>("audioFiles");
 
-  // Titel aus Dateinamen ableiten (ohne Endung) als Default
   const defaultTitle = originalFilename.replace(/\.[^/.]+$/, "");
 
-  // Default-Artist = Username des Uploaders (eingebettete ID3-Tags überschreiben das später)
   const uploader = await db
     .collection<User>("users")
     .findOne({ _id: new ObjectId(req.userId) }, { projection: { username: 1 } });
@@ -229,7 +216,7 @@ export async function confirmAudioUpload(req: AuthRequest, res: Response) {
     updatedAt: new Date(),
     versions: [v0],
     selectedVersionId: v0._id,
-    // Mirror der Hauptversion
+
     key,
     originalFilename,
     fileSize,
@@ -247,8 +234,6 @@ export async function confirmAudioUpload(req: AuthRequest, res: Response) {
   });
   res.status(201).json({ ...newAudioFile, _id: result.insertedId });
 }
-
-/* ---- Reiner Projekt-Eintrag (nur .zip/.rar, keine Audiodatei) ---- */
 
 export async function initProjectUpload(req: AuthRequest, res: Response) {
   const parsed = initVersionProjectSchema.safeParse(req.body);
@@ -321,7 +306,6 @@ export async function confirmProjectUpload(req: AuthRequest, res: Response) {
   res.status(201).json({ ...newEntry, _id: result.insertedId });
 }
 
-// Alle Tracks einer Playlist auflisten
 export async function getAudioFilesByPlaylist(req: AuthRequest, res: Response) {
 
   const { playlistId } = req.params;
@@ -352,7 +336,6 @@ export async function getAudioFilesByPlaylist(req: AuthRequest, res: Response) {
 res.json(withCoverUrls);
 }
 
-// Einzelnen Track abrufen
 export async function getAudioFileById(req: AuthRequest, res: Response) {
 
   const { id } = req.params;
@@ -373,7 +356,6 @@ export async function getAudioFileById(req: AuthRequest, res: Response) {
   res.json({ ...clientTrack(track), coverUrl });
 }
 
-// Metadaten bearbeiten (Titel, Interpret, Beschreibung)
 export async function updateAudioFile(req: AuthRequest, res: Response) {
   const parseResult = updateAudioFileSchema.safeParse(req.body);
   if (!parseResult.success) {
@@ -403,7 +385,6 @@ export async function updateAudioFile(req: AuthRequest, res: Response) {
     return res.status(404).json({ error: "Track nicht gefunden" });
   }
 
-  // Eine Detail-Benachrichtigung pro tatsächlich geändertem Feld.
   const d = parseResult.data;
   const changed: Array<[string, string | undefined, string | undefined]> = [];
   if (d.title !== undefined && d.title !== existing.title)
@@ -427,7 +408,6 @@ export async function updateAudioFile(req: AuthRequest, res: Response) {
   res.json({ ...clientTrack(result), coverUrl });
 }
 
-// Eigenes Cover für einen Track hochladen (gleicher Ablauf wie bei Playlist-Cover)
 export async function getAudioFileCoverUploadUrl(req: AuthRequest, res: Response) {
   const parseResult = uploadUrlRequestSchema.safeParse(req.body);
   if (!parseResult.success) {
@@ -464,7 +444,6 @@ export async function getAudioFileCoverUploadUrl(req: AuthRequest, res: Response
   res.json({ uploadUrl, key });
 }
 
-// Track löschen
 export async function deleteAudioFile(req: AuthRequest, res: Response) {
 
     const { id } = req.params;
@@ -502,7 +481,6 @@ export async function deleteAudioFile(req: AuthRequest, res: Response) {
   res.json({ message: "Track gelöscht" });
 }
 
-// Streamen (nur Owner, eingeloggt)
 export async function streamAudioFile(req: AuthRequest, res: Response) {
 
   const { id } = req.params;
@@ -527,7 +505,6 @@ export async function streamAudioFile(req: AuthRequest, res: Response) {
   res.json({ streamUrl });
 }
 
-// Teilen aktivieren
 export async function enableShare(req: AuthRequest, res: Response) {
 
     const { id } = req.params;
@@ -544,7 +521,6 @@ export async function enableShare(req: AuthRequest, res: Response) {
     return res.status(404).json({ error: "Track nicht gefunden" });
   }
 
-  // Falls schon ein Token existiert, wiederverwenden, sonst neu generieren
   const shareToken = track.shareToken ?? randomBytes(24).toString("hex");
 
   const set: Partial<AudioFile> = {
@@ -565,7 +541,6 @@ export async function enableShare(req: AuthRequest, res: Response) {
   });
 }
 
-// Teilen deaktivieren
 export async function disableShare(req: AuthRequest, res: Response) {
 
     const { id } = req.params;
@@ -595,7 +570,6 @@ export async function disableShare(req: AuthRequest, res: Response) {
   res.json({ message: "Teilen deaktiviert" });
 }
 
-// Eigenen Link nur für die Projektdatei aktivieren
 export async function enableProjectShare(req: AuthRequest, res: Response) {
   const track = await verifyTrackOwnership(req.params.id, req.userId!);
   if (!track) return res.status(404).json({ error: "Track nicht gefunden" });
@@ -636,7 +610,6 @@ export async function disableProjectShare(req: AuthRequest, res: Response) {
   res.json({ message: "Projekt-Teilen deaktiviert" });
 }
 
-// Öffentlicher Projekt-Download (KEIN Login nötig)
 export async function getSharedProject(req: AuthRequest, res: Response) {
   const token = param(req.params.token);
   if (!token) return res.status(400).json({ error: "Ungültiger Link" });
@@ -662,7 +635,6 @@ export async function getSharedProject(req: AuthRequest, res: Response) {
   res.json({ url, filename, trackTitle: track.title });
 }
 
-// Öffentliches Streamen über Share-Link (KEIN Login nötig)
 export async function streamSharedAudioFile(req: AuthRequest, res: Response) {
   const db = getDB();
   const audioFiles = db.collection<AudioFile>("audioFiles");
@@ -681,7 +653,7 @@ export async function streamSharedAudioFile(req: AuthRequest, res: Response) {
   if (!streamKey) {
     return res.status(404).json({ error: "Kein Audio verfügbar" });
   }
-  // Passwortschutz (music+): Owner ist ausgenommen.
+
   if (track.sharePasswordHash && !(req.userId && track.owner.equals(req.userId))) {
     const key =
       (typeof req.query.k === "string" && req.query.k) ||
@@ -720,7 +692,6 @@ export async function streamSharedAudioFile(req: AuthRequest, res: Response) {
   });
 }
 
-// PATCH /audio-files/:id/share-password  { password: string | null }  (Owner, music+)
 export async function setTrackSharePassword(req: AuthRequest, res: Response) {
   const parsed = setTrackSharePasswordSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -754,7 +725,6 @@ export async function setTrackSharePassword(req: AuthRequest, res: Response) {
   res.json({ sharePasswordSet: !!updated?.sharePasswordHash });
 }
 
-// POST /audio-files/public/unlock/:shareToken  { password }  (kein Login)
 export async function unlockTrackShare(req: AuthRequest, res: Response) {
   const shareToken = param(req.params.shareToken);
   if (!shareToken) return res.status(400).json({ error: "Ungültiger Link" });
@@ -794,8 +764,6 @@ export async function reorderAudioFiles(req: AuthRequest, res: Response) {
   const db = getDB();
   const audioFiles = db.collection<AudioFile>("audioFiles");
 
-  // Alle gesendeten IDs müssen zu dieser Playlist gehören (Owner nicht relevant –
-  // Tracks können auch Mitgliedern gehören).
   const owned = await audioFiles
     .find({
       _id: { $in: orderedIds.map((id) => new ObjectId(id)) },
@@ -808,9 +776,6 @@ export async function reorderAudioFiles(req: AuthRequest, res: Response) {
     return res.status(400).json({ error: "Ungültige Track-Liste" });
   }
 
-  // orderedIds darf eine Teilmenge sein (gefilterte Ansicht). Wir laden die
-  // volle Playlist-Reihenfolge und füllen die "sichtbaren" Slots neu; alle
-  // anderen Einträge behalten ihre Position.
   const all = await audioFiles
     .find({ playlistId: playlist._id })
     .sort({ order: 1, createdAt: -1 })
@@ -835,9 +800,6 @@ export async function reorderAudioFiles(req: AuthRequest, res: Response) {
   res.json({ message: "Reihenfolge gespeichert" });
 }
 
-/* ============================ Track-Versionen ============================ */
-
-// Upload einer weiteren Version vorbereiten
 export async function initVersionUpload(req: AuthRequest, res: Response) {
   const parsed = initVersionUploadSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -869,7 +831,6 @@ export async function initVersionUpload(req: AuthRequest, res: Response) {
   res.json({ uploadUrl, key });
 }
 
-// Neue Version bestätigen -> wird automatisch Hauptversion
 export async function confirmVersionUpload(req: AuthRequest, res: Response) {
   const parsed = confirmVersionUploadSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -914,7 +875,6 @@ export async function confirmVersionUpload(req: AuthRequest, res: Response) {
   await sendTrack(res, track._id!);
 }
 
-// Version-Metadaten setzen (BPM / Key / Label) - z.B. aus Browser-Analyse
 export async function updateVersion(req: AuthRequest, res: Response) {
   const parsed = updateVersionSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -950,8 +910,7 @@ export async function updateVersion(req: AuthRequest, res: Response) {
   }
 
   await writeMirror(audioFiles, track._id!);
-  // Skip the browser's automatic BPM/key analysis right after upload — that
-  // isn't a deliberate edit and would double up with "track added".
+
   const isFreshUpload = Date.now() - new Date(track.createdAt).getTime() < 120_000;
   if (!isFreshUpload) {
     const changes: Array<[string, string | undefined, string | undefined]> = [];
@@ -983,7 +942,6 @@ export async function updateVersion(req: AuthRequest, res: Response) {
   await sendTrack(res, track._id!);
 }
 
-// Hauptversion umschalten
 export async function selectVersion(req: AuthRequest, res: Response) {
   const track = await verifyTrackOwnership(req.params.id, req.userId!);
   if (!track) return res.status(404).json({ error: "Track nicht gefunden" });
@@ -1010,7 +968,6 @@ export async function selectVersion(req: AuthRequest, res: Response) {
   await sendTrack(res, track._id!);
 }
 
-// Version löschen (nicht die letzte)
 export async function deleteVersion(req: AuthRequest, res: Response) {
   const track = await verifyTrackOwnership(req.params.id, req.userId!);
   if (!track) return res.status(404).json({ error: "Track nicht gefunden" });
@@ -1033,7 +990,7 @@ export async function deleteVersion(req: AuthRequest, res: Response) {
   await safeDelete(version.projectKey);
 
   const remaining = track.versions.filter((v) => !v._id.equals(versionId));
-  // War es die Hauptversion -> neueste übrige wählen
+
   const stillSelected = track.selectedVersionId.equals(versionId)
     ? remaining[remaining.length - 1]._id
     : track.selectedVersionId;
@@ -1056,8 +1013,6 @@ export async function deleteVersion(req: AuthRequest, res: Response) {
 
   await sendTrack(res, track._id!);
 }
-
-/* ============================ Projektdateien ============================ */
 
 async function loadVersionForProject(req: AuthRequest, res: Response) {
   const track = await verifyTrackOwnership(req.params.id, req.userId!);
@@ -1093,7 +1048,7 @@ export async function initVersionProject(req: AuthRequest, res: Response) {
     return res.status(400).json({ error: "Nur .zip- oder .rar-Dateien erlaubt" });
   }
 
-  const extra = fileSize - (ctx.version.projectSize ?? 0); // ersetzt ggf. bestehende
+  const extra = fileSize - (ctx.version.projectSize ?? 0);
   const limit = await assertWithinLimit(new ObjectId(req.userId), Math.max(0, extra));
   if (!limit.ok) return res.status(limit.status).json({ error: limit.error });
 
@@ -1115,7 +1070,6 @@ export async function confirmVersionProject(req: AuthRequest, res: Response) {
   const db = getDB();
   const audioFiles = db.collection<AudioFile>("audioFiles");
 
-  // altes Projekt-Objekt aufräumen, falls es ersetzt wird
   if (ctx.version.projectKey && ctx.version.projectKey !== key) {
     await safeDelete(ctx.version.projectKey);
   }
@@ -1155,10 +1109,6 @@ export async function downloadVersionProject(req: AuthRequest, res: Response) {
   res.json({ url });
 }
 
-/**
- * Frontend calls this once a play has passed the 15-second threshold.
- * optionalAuth — anonymous listens are logged with userId = null.
- */
 export async function logListen(req: AuthRequest, res: Response) {
   const id = param(req.params.id);
   if (!id || !ObjectId.isValid(id)) {
@@ -1170,12 +1120,10 @@ export async function logListen(req: AuthRequest, res: Response) {
     .findOne({ _id: new ObjectId(id) }, { projection: { owner: 1 } });
   if (!track) return res.status(404).json({ error: "Track nicht gefunden" });
 
-  // Don't count the owner listening to their own track.
   if (req.userId && track.owner.equals(req.userId)) {
     return res.json({ ok: true, counted: false });
   }
 
-  // Light dedup for logged-in users: one listen per 20s per track.
   if (req.userId) {
     const recent = await db.collection<TrackEvent>("trackEvents").findOne({
       trackId: track._id,
@@ -1190,7 +1138,6 @@ export async function logListen(req: AuthRequest, res: Response) {
   res.json({ ok: true, counted: true });
 }
 
-// Alle Detail-Infos + Zähler für das Info-Fenster
 export async function getAudioFileInfo(req: AuthRequest, res: Response) {
   const track = await verifyTrackOwnership(req.params.id, req.userId!);
   if (!track) return res.status(404).json({ error: "Track nicht gefunden" });

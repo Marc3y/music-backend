@@ -11,8 +11,6 @@ import { Playlist } from "../models/Playlist";
 import { getDownloadUrl } from "./storage.service";
 import { hasPlus } from "../config/limits";
 
-/* ---------------- SSE-Registry ---------------- */
-
 const clients = new Map<string, Set<Response>>();
 
 export function addSseClient(userId: string, res: Response) {
@@ -39,12 +37,10 @@ function pushToUser(userId: string, event: string, data: unknown) {
     try {
       res.write(payload);
     } catch {
-      /* tote Verbindung – wird beim close aufgeräumt */
+
     }
   }
 }
-
-/* ---------------- Serialisierung ---------------- */
 
 export async function serializeNotification(n: Notification) {
   return {
@@ -64,8 +60,6 @@ export async function serializeNotification(n: Notification) {
   };
 }
 
-/* ---------------- Erstellung ---------------- */
-
 interface CreateArgs {
   recipientId: ObjectId;
   actorId: ObjectId;
@@ -78,7 +72,7 @@ interface CreateArgs {
 }
 
 export async function createNotification(args: CreateArgs) {
-  // Nie über die eigene Aktion benachrichtigen.
+
   if (args.recipientId.equals(args.actorId)) return;
 
   const db = getDB();
@@ -110,9 +104,6 @@ export async function createNotification(args: CreateArgs) {
   pushToUser(args.recipientId.toString(), "notification", serial);
 }
 
-/* ---------------- High-Level-Helfer ---------------- */
-
-// Jemand hört einen Track → Owner benachrichtigen (nur wenn Owner music+ hat).
 export async function notifyListen(
   track: { _id?: ObjectId; owner: ObjectId; title: string; playlistId?: ObjectId },
   listenerId: string | undefined
@@ -127,7 +118,6 @@ export async function notifyListen(
     .findOne({ _id: track.owner }, { projection: { tier: 1 } });
   if (!owner || !hasPlus(owner.tier)) return;
 
-  // Entprellen: gleicher Hörer + gleicher Track in den letzten 30 Minuten → nichts.
   const since = new Date(Date.now() - 30 * 60 * 1000);
   const recent = await db.collection<Notification>("notifications").findOne({
     userId: track.owner,
@@ -157,8 +147,6 @@ export async function notifyListen(
   });
 }
 
-// Collaborator-Aktion → Owner + alle beigetretenen Mitglieder (außer dem Actor).
-// Unabhängig von der Abo-Stufe des Empfängers (Collaboration-Feature).
 export async function notifyCollabActivity(
   playlist: Pick<Playlist, "_id" | "name" | "owner" | "collaborators">,
   actorId: string,
@@ -196,7 +184,6 @@ export async function notifyCollabActivity(
   }
 }
 
-/** Jemand hat deinen geteilten Track / deine Playlist zur Mediathek hinzugefügt. */
 export async function notifyShareSaved(
   ownerId: ObjectId,
   actorId: string,

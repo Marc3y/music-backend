@@ -19,13 +19,11 @@ import { errorHandler } from "./middleware/errorHandler";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Behind a reverse proxy (nginx). Trust the first hop so req.ip and
-// express-rate-limit use the real client IP from X-Forwarded-For.
 app.set("trust proxy", 1);
 
 app.use(express.json());
 app.use(cookieParser());
-app.use(cors({ origin: process.env.FRONTEND_URL, credentials: true })); // Frontend-URL später anpassen
+app.use(cors({ origin: process.env.FRONTEND_URL, credentials: true }));
 
 app.use("/auth", authRoutes);
 app.use("/account", accountRoutes);
@@ -40,7 +38,6 @@ async function startServer() {
   try {
     await connectDB();
 
-    // Bestandsuser bekommen das Standard-Speicherlimit als Feld (idempotent)
     await getDB()
       .collection("users")
       .updateMany(
@@ -48,12 +45,10 @@ async function startServer() {
         { $set: { storageLimit: DEFAULT_STORAGE_LIMIT_BYTES } }
       );
 
-    // Abo-Stufe: alle ohne Feld auf "free" (idempotent)
     await getDB()
       .collection("users")
       .updateMany({ tier: { $exists: false } }, { $set: { tier: "free" } });
 
-    // Bestandstracks in das Versions-Modell überführen (idempotent)
     const audioFiles = getDB().collection<AudioFile>("audioFiles");
     const legacy = audioFiles.find({ versions: { $exists: false } } as any);
     let migrated = 0;
@@ -96,7 +91,6 @@ async function startServer() {
       { $set: { kind: "track" } }
     );
 
-    // Tonarten auf kompakte englische Notation umstellen ("F# moll" -> "F#m") – idempotent
     {
       const cursor = audioFiles.find({
         $or: [
@@ -122,7 +116,6 @@ async function startServer() {
       if (keyMigrated > 0) console.log(`🎼 ${keyMigrated} Track(s) Tonart-Notation migriert`);
     }
 
-    // Mediathek-Sortierung: bestehende Playlists / gespeicherte Shares mit `order` befüllen (idempotent)
     {
       const playlists = getDB().collection("playlists");
       const ownersCursor = playlists.aggregate([
@@ -167,7 +160,6 @@ async function startServer() {
       if (ssMigrated > 0) console.log(`↕️  ${ssMigrated} gespeicherte Share(s) Sortierung initialisiert`);
     }
 
-    // Indizes (best effort, einzeln – ein Konflikt darf die anderen nicht überspringen)
     const ensureIndex = async (
       coll: string,
       spec: Record<string, 1 | -1>,
@@ -196,7 +188,7 @@ async function startServer() {
     await ensureIndex(
       "notifications",
       { createdAt: 1 },
-      { expireAfterSeconds: 60 * 60 * 24 * 60 } // 60 Tage aufheben
+      { expireAfterSeconds: 60 * 60 * 24 * 60 }
     );
 
     app.listen(PORT, () => {

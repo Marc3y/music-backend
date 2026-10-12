@@ -49,7 +49,7 @@ export async function processAudioMetadata(
       "versions.$.status": "ready",
     };
     if (duration) versionSet["versions.$.duration"] = duration;
-    // Eingebettete BPM/Key nur als Fallback (Client-Analyse hat Vorrang)
+
     if (embeddedBpm && (version.bpm === null || version.bpm === undefined)) {
       versionSet["versions.$.bpm"] = embeddedBpm;
     }
@@ -62,7 +62,6 @@ export async function processAudioMetadata(
       { $set: versionSet }
     );
 
-    // Eingebettete Tags nur für die allererste Version als Track-Titel/Artist-Vorschlag
     const isFirstVersion = track.versions[0]?._id.equals(versionId);
     if (isFirstVersion) {
       const trackSet: Record<string, unknown> = {};
@@ -73,8 +72,6 @@ export async function processAudioMetadata(
         trackSet.title = embeddedTitle;
       }
       if (embeddedArtist) {
-        // Embedded ID3-Artist gewinnt gegen den Uploader-Username-Default,
-        // aber nicht gegen eine manuelle Eingabe des Nutzers.
         const uploader = await db
           .collection<User>("users")
           .findOne({ _id: track.owner }, { projection: { username: 1 } });

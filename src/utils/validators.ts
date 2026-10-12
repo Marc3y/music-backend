@@ -19,11 +19,11 @@ export const verifyEmailSchema = z.object({
 export const createPlaylistSchema = z.object({
   name: z.string().min(1, "Name erforderlich").max(100),
 });
-  
+
 export const updatePlaylistSchema = z.object({
   name: z.string().min(1).max(100).optional(),
 });
-  
+
 export const uploadUrlRequestSchema = z.object({
   filename: z.string().min(1),
   contentType: z.string().min(1),
@@ -32,28 +32,26 @@ export const uploadUrlRequestSchema = z.object({
 export const initAudioUploadSchema = z.object({
   filename: z.string().min(1),
   contentType: z.string().min(1),
-  fileSize: z.number().positive().max(500 * 1024 * 1024), // Max 500 MB
+  fileSize: z.number().positive().max(500 * 1024 * 1024),
 });
-  
+
 export const confirmAudioUploadSchema = z.object({
   key: z.string().min(1),
   originalFilename: z.string().min(1),
   fileSize: z.number().positive(),
   mimeType: z.string().min(1),
 });
-  
+
 export const updateAudioFileSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   artist: z.string().max(200).optional(),
   description: z.string().max(1000).optional(),
 });
 
-// --- Track-Versionen ---------------------------------------------------------
-
 export const initVersionUploadSchema = z.object({
   filename: z.string().min(1),
   contentType: z.string().min(1),
-  fileSize: z.number().positive().max(500 * 1024 * 1024), // Max 500 MB
+  fileSize: z.number().positive().max(500 * 1024 * 1024),
 });
 
 export const confirmVersionUploadSchema = z.object({
@@ -72,7 +70,7 @@ export const updateVersionSchema = z.object({
 export const initVersionProjectSchema = z.object({
   filename: z.string().min(1),
   contentType: z.string().min(1),
-  // Projektdateien: kein eigenes Limit, nur das Account-Limit (hier großzügige Obergrenze)
+
   fileSize: z.number().positive().max(20 * 1024 * 1024 * 1024),
 });
 
@@ -85,7 +83,7 @@ export const confirmVersionProjectSchema = z.object({
 export const forgotPasswordSchema = z.object({
     email: z.string().email(),
 });
-  
+
 export const resetPasswordSchema = z.object({
     token: z.string().min(1),
     newPassword: z.string().min(8, "Passwort muss mindestens 8 Zeichen haben"),
@@ -120,7 +118,7 @@ export const updatePlaylistShareSchema = z.object({
     shareRestricted: z.boolean().optional(),
     shareAllowDownload: z.boolean().optional(),
     allowedUsernames: z.array(usernameEntry).max(100).optional(),
-    // null = Passwortschutz entfernen; String = neues Passwort setzen (music+)
+
     sharePassword: z.string().min(1).max(200).nullable().optional(),
 });
 
@@ -128,7 +126,6 @@ export const unlockShareSchema = z.object({
     password: z.string().min(1).max(200),
 });
 
-// null = Passwortschutz entfernen; String = neues Passwort setzen (music+)
 export const setTrackSharePasswordSchema = z.object({
     password: z.string().min(1).max(200).nullable(),
 });

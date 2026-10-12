@@ -21,14 +21,13 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
   }
 }
 
-// Setzt req.userId, wenn ein gültiges Access-Token vorliegt – blockiert aber nie.
 export function optionalAuth(req: AuthRequest, _res: Response, next: NextFunction) {
   const token = req.cookies?.accessToken;
   if (token) {
     try {
       req.userId = verifyAccessToken(token).userId;
     } catch {
-      // anonym weiter
+
     }
   }
   next();

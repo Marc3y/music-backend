@@ -44,7 +44,6 @@ function clearAuthCookies(res: Response) {
   res.clearCookie("refreshToken");
 }
 
-// S3-Objekt löschen, ohne dass ein fehlendes Objekt den Ablauf abbricht
 async function safeDeleteObject(key?: string) {
   if (!key) return;
   try {
@@ -71,7 +70,6 @@ export function resolveStorageLimit(
   return storageLimitForTier(user.tier, user.storageLimit);
 }
 
-// Belegter Speicher = Audio ALLER Versionen + alle Projektdateien
 export async function getStorageUsage(userId: ObjectId): Promise<number> {
   const db = getDB();
   const audioFiles = db.collection<AudioFile>("audioFiles");
@@ -98,7 +96,6 @@ export async function getStorageUsage(userId: ObjectId): Promise<number> {
   return row?.used ?? 0;
 }
 
-// Gesamtgröße eines Tracks (alle Versionen: Audio + Projekt)
 function trackTotalSize(t: AudioFile): number {
   return (t.versions ?? []).reduce(
     (s, v) => s + (v.fileSize ?? 0) + (v.projectSize ?? 0),
@@ -263,7 +260,6 @@ export async function getAvatarUploadUrl(req: AuthRequest, res: Response) {
     return res.status(404).json({ error: "User nicht gefunden" });
   }
 
-  // Altes Avatar-Objekt aufräumen
   await safeDeleteObject(user.avatarKey);
 
   const key = generateObjectKey(`avatars/${req.userId}`, filename);
@@ -390,7 +386,6 @@ export async function requestAccountDeletion(req: AuthRequest, res: Response) {
     return res.status(404).json({ error: "User nicht gefunden" });
   }
 
-  // Google accounts have no password — the session cookie already proves identity.
   if (user.passwordHash) {
     const matches = await bcrypt.compare(
       parseResult.data.password ?? "",
@@ -417,7 +412,6 @@ export async function requestAccountDeletion(req: AuthRequest, res: Response) {
   res.json({ message: "Bestätigungscode an deine E-Mail gesendet" });
 }
 
-// Alle Daten eines Users unwiderruflich entfernen (DB + Objektspeicher)
 async function deleteAllUserData(userId: ObjectId, user: User) {
   const db = getDB();
   const playlists = db.collection<Playlist>("playlists");
@@ -479,8 +473,6 @@ export async function confirmAccountDeletion(req: AuthRequest, res: Response) {
   clearAuthCookies(res);
   res.json({ message: "Account gelöscht" });
 }
-
-/* ==================== Geteilte Sachen in der Mediathek ==================== */
 
 async function resolveSharedTrack(type: "audio" | "project", token: string) {
   const audioFiles = getDB().collection<AudioFile>("audioFiles");
@@ -555,7 +547,6 @@ export async function addSavedShare(req: AuthRequest, res: Response) {
       { upsert: true }
     );
 
-  // Nur beim ersten Speichern benachrichtigen.
   if (upsert.upsertedCount > 0) notify?.();
 
   res.json({ message: "Zur Mediathek hinzugefügt" });
@@ -641,7 +632,6 @@ export async function listSavedShares(req: AuthRequest, res: Response) {
   res.json(result);
 }
 
-// POST /account/saved-shares/reorder  { orderedIds: string[] }
 export async function reorderSavedShares(req: AuthRequest, res: Response) {
   const { orderedIds } = req.body as { orderedIds?: unknown };
   if (

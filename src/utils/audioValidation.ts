@@ -1,10 +1,10 @@
 const ALLOWED_MIME_TYPES = [
-    "audio/mpeg",       // mp3
+    "audio/mpeg",
     "audio/wav",
     "audio/x-wav",
     "audio/flac",
     "audio/x-flac",
-    "audio/mp4",        // m4a
+    "audio/mp4",
     "audio/aac",
     "audio/ogg",
   ];
@@ -19,11 +19,9 @@ const ALLOWED_MIME_TYPES = [
     "application/x-rar-compressed",
     "application/vnd.rar",
     "application/x-rar",
-    "application/octet-stream", // Browser liefern für .rar oft nichts Besseres
+    "application/octet-stream",
   ];
 
-  // Projektdateien: .zip / .rar. MIME ist bei Archiven unzuverlässig, daher zählt
-  // primär die Dateiendung.
   export function isAllowedProjectFile(filename: string, mimeType: string): boolean {
     const lower = filename.toLowerCase();
     if (lower.endsWith(".zip") || lower.endsWith(".rar")) return true;

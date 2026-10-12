@@ -21,7 +21,6 @@ import {
 
 const router = Router();
 
-// Öffentliche Playlist-Ansicht (Login optional) - VOR requireAuth
 router.post("/public/:token/unlock", asyncHandler(unlockSharedPlaylist));
 router.get("/public/:token", optionalAuth, asyncHandler(getSharedPlaylist));
 router.get(
@@ -40,7 +39,7 @@ router.get(
   asyncHandler(getSharedPlaylistProject)
 );
 
-router.use(requireAuth); // alle weiteren Playlist-Routen brauchen Login
+router.use(requireAuth);
 
 router.post("/", asyncHandler(createPlaylist));
 router.get("/", asyncHandler(getPlaylists));

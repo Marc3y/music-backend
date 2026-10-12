@@ -1,10 +1,5 @@
-/**
- * Normalises a musical-key string to the compact English form used across the app:
- *   minor -> "<note>m"     (e.g. "F#m")
- *   major -> "<note> maj"  (e.g. "F# maj")
- * Handles the old German values ("F# moll" / "F# dur") and common English variants.
- * Returns the trimmed input unchanged if it can't be parsed.
- */
+
+
 export function normalizeKey(raw?: string | null): string | null {
   if (raw == null) return null;
   const s = String(raw).trim();

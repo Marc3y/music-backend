@@ -36,7 +36,6 @@ import {
 
 const router = Router();
 
-// Öffentliche Routen (kein Login) - MÜSSEN vor requireAuth stehen
 router.get("/public/stream/:shareToken", optionalAuth, streamSharedAudioFile);
 router.post("/public/unlock/:shareToken", optionalAuth, asyncHandler(unlockTrackShare));
 router.get("/public/project/:token", optionalAuth, getSharedProject);
@@ -44,7 +43,6 @@ router.post("/:id/listened", optionalAuth, asyncHandler(logListen));
 
 router.use(requireAuth);
 
-// Playlist-bezogene Upload-Routen
 router.post("/playlists/:playlistId/reorder", asyncHandler(reorderAudioFiles));
 router.post("/playlists/:playlistId/init-upload", asyncHandler(initAudioUpload));
 router.post("/playlists/:playlistId/confirm-upload", asyncHandler(confirmAudioUpload));
@@ -52,20 +50,17 @@ router.post("/playlists/:playlistId/project-init", asyncHandler(initProjectUploa
 router.post("/playlists/:playlistId/project-confirm", asyncHandler(confirmProjectUpload));
 router.get("/playlists/:playlistId", asyncHandler(getAudioFilesByPlaylist));
 
-// Versionen (spezifische Routen VOR generischem /:id)
 router.post("/:id/versions/init", asyncHandler(initVersionUpload));
 router.post("/:id/versions/confirm", asyncHandler(confirmVersionUpload));
 router.patch("/:id/versions/:vid", asyncHandler(updateVersion));
 router.post("/:id/versions/:vid/select", asyncHandler(selectVersion));
 router.delete("/:id/versions/:vid", asyncHandler(deleteVersion));
 
-// Projektdateien einer Version
 router.post("/:id/versions/:vid/project/init", asyncHandler(initVersionProject));
 router.post("/:id/versions/:vid/project/confirm", asyncHandler(confirmVersionProject));
 router.get("/:id/versions/:vid/project/download", asyncHandler(downloadVersionProject));
 router.delete("/:id/versions/:vid/project", asyncHandler(deleteVersionProject));
 
-// Einzelner Track
 router.get("/:id/info", asyncHandler(getAudioFileInfo));
 router.get("/:id", asyncHandler(getAudioFileById));
 router.patch("/:id", asyncHandler(updateAudioFile));

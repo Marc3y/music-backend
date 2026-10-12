@@ -78,7 +78,7 @@ export function streamNotifications(req: AuthRequest, res: Response) {
     try {
       res.write(": ping\n\n");
     } catch {
-      /* ignore */
+
     }
   }, 25000);
 

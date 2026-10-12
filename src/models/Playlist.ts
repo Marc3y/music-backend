@@ -1,8 +1,8 @@
 import { ObjectId } from "mongodb";
 
 export interface PlaylistCollaborator {
-  username: string; // lowercase
-  userId?: ObjectId; // gesetzt, sobald der User über den Invite-Link beigetreten ist
+  username: string;
+  userId?: ObjectId;
 }
 
 export interface Playlist {
@@ -10,20 +10,18 @@ export interface Playlist {
   name: string;
   coverKey?: string;
   owner: ObjectId;
-  order?: number; // Sortierung in der Mediathek (aufsteigend)
+  order?: number;
   createdAt: Date;
   updatedAt: Date;
 
-  // --- Read-only teilen ---
   shareEnabled?: boolean;
   shareToken?: string;
-  shareRestricted?: boolean; // true = nur allowedUsernames
+  shareRestricted?: boolean;
   shareAllowDownload?: boolean;
-  allowedUsernames?: string[]; // lowercase
-  /** bcrypt-Hash; wenn gesetzt, muss ein Passwort eingegeben werden (music+). */
+  allowedUsernames?: string[];
+
   sharePasswordHash?: string;
 
-  // --- Collaboration ---
   collabToken?: string;
   collaborators?: PlaylistCollaborator[];
 }

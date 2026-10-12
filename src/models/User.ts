@@ -12,9 +12,9 @@ export interface User {
   passwordResetToken?: string;
   passwordResetExpiry?: Date;
   avatarKey?: string;
-  /** Abo-Stufe. Fehlt = "free". Wird bis zur echten Zahlungsabwicklung manuell in der DB gesetzt. */
+
   tier?: "free" | "plus" | "unlimited";
-  storageLimit?: number; // Bytes; Default siehe config/limits.ts
+  storageLimit?: number;
   pendingPasswordHash?: string;
   passwordChangeCode?: string;
   passwordChangeExpiry?: Date;

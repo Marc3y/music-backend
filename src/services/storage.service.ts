@@ -14,7 +14,7 @@ export async function getUploadUrl(key: string, contentType: string): Promise<st
     Key: key,
     ContentType: contentType,
   });
-  return getSignedUrl(s3, command, { expiresIn: 300 }); // 5 Min gültig
+  return getSignedUrl(s3, command, { expiresIn: 300 });
 }
 
 export async function getDownloadUrl(key: string): Promise<string> {
@@ -22,10 +22,9 @@ export async function getDownloadUrl(key: string): Promise<string> {
     Bucket: BUCKET_NAME,
     Key: key,
   });
-  return getSignedUrl(s3, command, { expiresIn: 600 }); // 10 Min gültig
+  return getSignedUrl(s3, command, { expiresIn: 600 });
 }
 
-// Wie getDownloadUrl, erzwingt aber einen Datei-Download mit sinnvollem Namen.
 export async function getDownloadUrlAttachment(
   key: string,
   filename: string

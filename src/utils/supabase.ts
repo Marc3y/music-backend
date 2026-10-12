@@ -11,11 +11,6 @@ export interface SupabaseIdentity {
 export class SupabaseConfigError extends Error {}
 export class SupabaseTokenError extends Error {}
 
-/**
- * Verifies a Supabase user access token by asking Supabase who it belongs to.
- * Throws SupabaseConfigError (server misconfigured) or SupabaseTokenError
- * (token missing / invalid / expired).
- */
 export async function verifySupabaseToken(
   accessToken: unknown
 ): Promise<SupabaseIdentity> {
